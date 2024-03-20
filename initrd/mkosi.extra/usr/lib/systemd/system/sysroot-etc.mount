@@ -1,0 +1,11 @@
+[Unit]
+Description=Writable overlay for %f
+Before=initrd-fs.target initrd-parse-etc.service
+Wants=overlay-backing-sysroot@etc.service
+RequiresMountsFor=/sysroot/usr/share/factory/%J
+RequiresMountsFor=/sysroot/.overlay-%J
+
+[Mount]
+What=overlay
+Type=overlay
+Options=lowerdir=/sysroot/usr/share/factory/%J,upperdir=/sysroot/.overlay-%J/diff,workdir=/sysroot/.overlay-%J/workdir,nodev,nosuid

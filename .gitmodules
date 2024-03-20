@@ -1,0 +1,3 @@
+[submodule "mkosi.images/system/mkosi.conf.d/47-systemd-homed/src/homed-selinux"]
+	path = mkosi.images/system/mkosi.conf.d/47-systemd-homed/src/homed-selinux
+	url = https://github.com/richiedaze/homed-selinux.git

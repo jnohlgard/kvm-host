@@ -1,0 +1,7 @@
+#!/usr/bin/sh
+set -euf
+
+# Masking dnsmasq.service is recommended in Fedora/RHEL documentation when
+# using high level network configuration management tools (NetworkManager,
+# systemd-networkd...)
+systemctl mask dnsmasq.service

@@ -1,0 +1,11 @@
+[Unit]
+Description=/etc upper backing store
+Before=initrd-fs.target
+#Requires=systemd-fsck@dev-vg\x2dsys-%M_etc.service
+#After=systemd-fsck@dev-vg\x2dsys-%M_etc.service
+#After=blockdev@dev-vg\x2dsys-%M_etc.target
+
+[Mount]
+What=none
+Options=nosuid,nodev,size=128m
+Type=tmpfs

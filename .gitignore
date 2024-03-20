@@ -1,0 +1,10 @@
+.venv/
+mkosi.tools/
+mkosi.crt
+mkosi.key
+mkosi.rootpw
+mkosi.passphrase
+mkosi.local.conf
+mkosi.output/
+# Secureboot keys
+mkosi.images/bootdisk/mkosi.extra/efi/loader/keys/

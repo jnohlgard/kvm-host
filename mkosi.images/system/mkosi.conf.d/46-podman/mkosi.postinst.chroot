@@ -1,0 +1,5 @@
+#!/usr/bin/sh
+set -euf
+
+# Masking docker.socket to avoid accidental activation in the future
+systemctl mask docker.socket

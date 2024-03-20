@@ -1,0 +1,28 @@
+#!/usr/bin/sh
+set -euf
+
+set +x
+printf 'Adding SELinux policy substitution for /home -> /var/home\n'
+set -x
+semanage fcontext -a -e '/home' '/var/home'
+set +x
+printf 'Adding SELinux policy substitutions for /etc overlay\n'
+set -x
+semanage fcontext -a -e '/etc' '/usr/share/factory/etc'
+semanage fcontext -a -e '/etc' '/.overlay-etc/overlay'
+semanage fcontext -a -t etc_t '/\.overlay-etc'
+# Avoid relabelling files in the overlayfs workdir
+selinux_policy=targeted
+printf '%s\t%s\n' '/\.overlay-etc/workdir/.*' '<<none>>' \
+  >> "/etc/selinux/${selinux_policy}/contexts/files/file_contexts.local"
+sefcontext_compile -p "/etc/selinux/${selinux_policy}/policy/policy.33" \
+  "/etc/selinux/${selinux_policy}/contexts/files/file_contexts.local"
+
+cat "/etc/selinux/${selinux_policy}/contexts/files/file_contexts.local"
+grep overlay-etc -R "/etc/selinux/${selinux_policy}/contexts/"
+set +x
+printf 'Local SELinux overrides:\n'
+set -x
+semanage export
+
+find /etc/selinux/ -ls

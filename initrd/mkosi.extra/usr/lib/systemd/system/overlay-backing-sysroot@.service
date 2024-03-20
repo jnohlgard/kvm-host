@@ -1,0 +1,19 @@
+[Unit]
+Description=Create overlay backing directories for /%J/.overlay-%i
+Documentation=man:tmpfiles.d(5) man:systemd-tmpfiles(8)
+
+DefaultDependencies=no
+After=initrd-root-fs.target
+Before=%j-%i.mount
+Conflicts=shutdown.target
+Before=initrd-switch-root.target initrd-fs.target
+RefuseManualStop=yes
+RequiresMountsFor=/%J/.overlay-%i
+ConditionPathIsReadWrite=/%J/.overlay-%i
+ConditionPathExists=/etc/initrd-release
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=systemd-tmpfiles --create --boot --graceful --root="/%J/.overlay-%i/" "/usr/lib/overlays/%j/tmpfiles.d/%i.conf"
+SuccessExitStatus=DATAERR CANTCREAT

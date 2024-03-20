@@ -1,0 +1,17 @@
+#!/usr/bin/sh
+set -eu
+
+if [ $# -gt 0 ] && [ "$1" = 'build' ]; then
+  # mkosi.prepare is called twice if building any components from source
+  exit 0
+fi
+
+printf 'Patching /usr/lib/os-release\n'
+MKOSI_IMAGE_VERSION="${IMAGE_VERSION}"
+MKOSI_IMAGE_ID="${IMAGE_ID}"
+source /usr/lib/os-release
+sed -i \
+  -e "/^PRETTY_NAME=/d;\$a PRETTY_NAME=\"Immutable ${NAME} ${VERSION} <KVM host>\"" \
+  -e "/^IMAGE_VERSION=/d;\$a IMAGE_VERSION=\"${MKOSI_IMAGE_VERSION}\"" \
+  -e "/^IMAGE_ID=/d;\$a IMAGE_ID=\"${MKOSI_IMAGE_ID}\"" \
+  /usr/lib/os-release

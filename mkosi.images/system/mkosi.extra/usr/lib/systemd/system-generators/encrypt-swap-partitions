@@ -1,0 +1,34 @@
+#!/usr/bin/sh
+set -eu
+
+if [ $# -lt 1 ]; then
+  printf 'Usage: %s <output-dir> [early-dir] [late-dir]\n' "${0##*/}"
+  exit 2
+fi
+
+outdir="$1";shift
+
+parttype_swap='0657fd6d-a4ab-43c4-84e5-0933c84b4f4f'
+# --value was added in systemd-255
+#parttype_swap="$(systemd-id128 --value --uuid show swap)"
+
+test -d "${outdir}"
+
+for partuuid in $(lsblk -o PARTTYPE,PARTUUID -r -n | \
+  grep -e "^${parttype_swap} " | \
+  cut -d' ' -f2)
+do
+  partuuid_escaped="$(systemd-escape "${partuuid}")"
+  luks_device="/dev/mapper/swap-${partuuid}"
+  luks_device_escaped="$(systemd-escape -p "${luks_device}")"
+  cat <<-EOF > "${outdir}/${luks_device_escaped}.swap"
+	[Unit]
+	SourcePath=/dev/disk/by-partuuid/${partuuid}
+	After=blockdev@${luks_device_escaped}.target
+	Wants=blockdev@${luks_device_escaped}.target
+
+	[Swap]
+	What=${luks_device}
+	Options=discard,pri=100
+EOF
+done
