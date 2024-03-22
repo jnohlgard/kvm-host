@@ -1,5 +1,7 @@
 .venv/
 mkosi.tools/
+mkosi.cache/*
+!mkosi.cache/.keep
 mkosi.crt
 mkosi.key
 mkosi.rootpw
