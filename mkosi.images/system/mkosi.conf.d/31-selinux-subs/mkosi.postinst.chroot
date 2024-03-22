@@ -15,9 +15,11 @@ semanage fcontext -a -t etc_t '/\.overlay-etc'
 selinux_policy=targeted
 printf '%s\t%s\n' '/\.overlay-etc/workdir/.*' '<<none>>' \
   >> "/etc/selinux/${selinux_policy}/contexts/files/file_contexts.local"
+# Experimental, not sure this works right now.
 sefcontext_compile -p "/etc/selinux/${selinux_policy}/policy/policy.33" \
   "/etc/selinux/${selinux_policy}/contexts/files/file_contexts.local"
 
+# Debug print
 cat "/etc/selinux/${selinux_policy}/contexts/files/file_contexts.local"
 grep overlay-etc -R "/etc/selinux/${selinux_policy}/contexts/"
 set +x
