@@ -1,0 +1,14 @@
+[Unit]
+Description=Open /dev/mapper/luks-%I
+DefaultDependencies=no
+Wants=systemd-udevd.service
+After=systemd-udevd.service
+After=cryptsetup-pre.target
+Wants=systemd-cryptsetup-by-partuuid@%i.service
+After=systemd-cryptsetup-by-partuuid@%i.service
+Before=cryptsetup.target
+Before=initrd-root-device.target systemd-fsck-root.service
+Before=initrd-fs.target initrd-root-fs.target initrd-usr-fs.target 
+Conflicts=shutdown.target
+Before=shutdown.target
+ConditionPathExists=/etc/initrd-release

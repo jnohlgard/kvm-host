@@ -1,0 +1,6 @@
+ACTION=="remove", GOTO="systemd_escape_uuids_end"
+SUBSYSTEM!="block", GOTO="systemd_escape_uuids_end"
+
+ENV{DEVTYPE}=="?*", IMPORT{program}="udev_systemd_escape"
+
+LABEL="systemd_escape_uuids_end"

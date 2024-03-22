@@ -1,0 +1,27 @@
+#!/usr/bin/sh
+set -eu
+
+for varname in \
+  DEVNAME \
+  DM_UUID \
+  DM_NAME \
+  DM_VG_NAME \
+  DM_LV_NAME \
+  ID_PART_TABLE_UUID \
+  ID_PART_ENTRY_NAME \
+  ID_PART_ENTRY_UUID \
+  ID_PART_ENTRY_TYPE \
+  ID_FS_UUID \
+  ID_FS_LABEL \
+  ID_SERIAL \
+  ID_WWN \
+  ID_WWN_WITH_EXTENSION \
+;do
+  value="$(printenv "${varname}")" || continue
+  if [ -z "${value}" ]; then
+    continue
+  fi
+  # Double all backslashes to get \x2d working properly in SYSTEMD_WANTS
+  printf '%s_SYSTEMD=%s\n' "${varname}" \
+    "$(systemd-escape "${value##/}" | sed -e 's/\\/\\\\/g')"
+done

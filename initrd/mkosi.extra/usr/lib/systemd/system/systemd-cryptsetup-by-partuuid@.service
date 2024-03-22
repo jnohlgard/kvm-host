@@ -1,0 +1,28 @@
+[Unit]
+Description=dm-crypt setup for %I
+Documentation=man:crypttab(5) man:systemd-cryptsetup-generator(8) man:systemd-cryptsetup@.service(8)
+
+DefaultDependencies=no
+After=cryptsetup-pre.target systemd-udevd-kernel.socket
+After=systemd-random-seed.service
+Wants=blockdev@dev-mapper-%i.target
+Before=blockdev@dev-mapper-%i.target
+Before=cryptsetup.target
+IgnoreOnIsolate=yes
+Conflicts=umount.target
+Before=umount.target
+BindsTo=dev-disk-by\x2d%j-%i.device
+After=dev-disk-by\x2d%j-%i.device
+#OnFailure=emergency.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutSec=infinity
+SyslogIdentifier=systemd-cryptsetup@%I
+KeyringMode=shared
+OOMScoreAdjust=500
+Environment="CRYPTSETUP_OPTIONS=luks,fido2-device=auto,tpm2-device=auto"
+Environment="CRYPTSETUP_KEYFILE=-"
+ExecStart=/usr/lib/systemd/systemd-cryptsetup attach '%I' '/dev/disk/by-%J/%I' "${CRYPTSETUP_KEYFILE}" "${CRYPTSETUP_OPTIONS}"
+ExecStop=/usr/lib/systemd/systemd-cryptsetup detach '%I'
