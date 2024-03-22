@@ -1,6 +1,8 @@
 [Unit]
 Description=/etc upper backing store
 Before=initrd-fs.target
+Wants=overlay-backing-sysroot@etc.service
+Before=overlay-backing-sysroot@etc.service
 #Requires=systemd-fsck@dev-vg\x2dsys-%M_etc.service
 #After=systemd-fsck@dev-vg\x2dsys-%M_etc.service
 #After=blockdev@dev-vg\x2dsys-%M_etc.target
