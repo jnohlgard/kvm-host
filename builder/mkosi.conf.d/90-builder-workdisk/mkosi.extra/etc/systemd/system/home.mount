@@ -1,0 +1,4 @@
+[Mount]
+What=/dev/vda
+Type=btrfs
+Options=subvol=@home

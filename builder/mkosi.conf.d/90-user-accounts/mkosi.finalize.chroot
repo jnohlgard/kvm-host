@@ -1,0 +1,22 @@
+#!/usr/bin/sh
+set -euf
+
+set -x
+
+user="${USER:-user}"
+
+if ! [ -x "${SHELL:-shell-is-not-set}" ]; then
+  SHELL=
+fi
+
+groups=wheel
+if getent group sudo >/dev/null; then
+  groups="${groups},sudo"
+fi
+
+useradd "${user}" \
+  --create-home \
+  --user-group \
+  ${SHELL:+--shell "${SHELL}"} \
+  --groups "${groups}" \
+  --password '!locked'
