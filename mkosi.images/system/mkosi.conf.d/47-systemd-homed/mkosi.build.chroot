@@ -2,4 +2,5 @@
 set -euf
 set -x
 make -C homed-selinux -f /usr/share/selinux/devel/Makefile
-semodule -n -i homed-selinux/homed.pp -v
+mkdir -p "${PACKAGEDIR}/selinux"
+cp -av homed-selinux/homed.pp "${PACKAGEDIR}/selinux/"
