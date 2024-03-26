@@ -1,0 +1,5 @@
+#!/usr/bin/sh
+set -euf
+
+printf 'Adding "UNKNOWN" to /etc/hosts to avoid slow SSH logins over VSOCK\n'
+printf '%s %s\n' "127.0.0.99" "unknown" >> /etc/hosts
