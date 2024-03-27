@@ -1,5 +1,21 @@
 #!/usr/bin/sh
-set -euf
+set -eu
+
+. /etc/selinux/config
+set +x
+printf 'Moving /var/lib/selinux to /etc/selinux\n'
+set -x
+sed -i -e '/^store-root=/d; $a store-root=/etc/selinux' '/etc/selinux/semanage.conf'
+for s in "/var/lib/selinux/"*; do
+  b="${s#/var/lib/}"
+  if [ -d "/etc/${b}" ]; then
+    mv -v "${s}/"* "/etc/${b}/"
+    ln -s "/etc/${b}/"* "${s}/"
+  else
+    mv -v "${s}" "/etc/${b}"
+    ln -s "/etc/${b}" "${s}"
+  fi
+done
 
 set +x
 printf 'Adding SELinux policy substitution for /home -> /var/home\n'
@@ -9,22 +25,19 @@ set +x
 printf 'Adding SELinux policy substitutions for /etc overlay\n'
 set -x
 semanage fcontext -a -e '/etc' '/usr/share/factory/etc'
-semanage fcontext -a -e '/etc' '/.overlay-etc/overlay'
-semanage fcontext -a -t etc_t '/\.overlay-etc'
-# Avoid relabelling files in the overlayfs workdir
-selinux_policy=targeted
-printf '%s\t%s\n' '/\.overlay-etc/workdir/.*' '<<none>>' \
-  >> "/etc/selinux/${selinux_policy}/contexts/files/file_contexts.local"
+semanage fcontext -a -e '/etc' '/usr/etc'
+semanage fcontext -a -e '/opt' '/usr/opt/lib'
+#semanage fcontext -a -e '/etc' '/.overlay-etc/overlay'
+#semanage fcontext -a -t etc_t '/\.overlay-etc'
+## Avoid relabelling files in the overlayfs workdir
+#printf '%s\t%s\n' '/\.overlay-etc/workdir/.*' '<<none>>' \
+#  >> "/etc/selinux/${SELINUXTYPE}/contexts/files/file_contexts.local"
 # Experimental, not sure this works right now.
-sefcontext_compile -p "/etc/selinux/${selinux_policy}/policy/policy.33" \
-  "/etc/selinux/${selinux_policy}/contexts/files/file_contexts.local"
+#sefcontext_compile -p "/etc/selinux/${SELINUXTYPE}/policy/policy.33" \
+#  "/etc/selinux/${SELINUXTYPE}/contexts/files/file_contexts.local"
 
 # Debug print
-cat "/etc/selinux/${selinux_policy}/contexts/files/file_contexts.local"
-grep overlay-etc -R "/etc/selinux/${selinux_policy}/contexts/"
 set +x
 printf 'Local SELinux overrides:\n'
 set -x
 semanage export
-
-find /etc/selinux/ -ls
