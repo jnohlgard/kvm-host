@@ -1,0 +1,204 @@
+#!/usr/bin/sh
+set -euf
+incdir=/usr/lib/os-installer
+. "${incdir}/die.inc.sh"
+. "${incdir}/devices.inc.sh"
+
+usage() {
+  printf 'Usage: %s [install_from] [target_vg] [image_id] [image_version]\n' "${0##*/}"
+  printf 'Install the system to the given LVM volume group (default: target_vg=%s install_from=%s)\n' \
+    "${target_vg}" "${install_from}"
+}
+
+if [ $# -gt 4 ]; then
+  usage >&2
+  exit 2
+fi
+
+if [ $# -gt 0 ] && [ "$1" = '--help' ]; then
+  usage
+  exit 0
+fi
+
+. /etc/os-release
+image_id="${IMAGE_ID-}"
+image_version="${IMAGE_VERSION-}"
+# Same format as the systemd-sysupdate architecture
+arch="$(uname -m | tr '_' '-')"
+
+target_vg='vgsys'
+install_from='/run/sysimages'
+
+if [ $# -gt 0 ]; then
+  install_from="$1"; shift
+fi
+if [ $# -gt 0 ]; then
+  target_vg="$1"; shift
+fi
+if [ $# -gt 0 ]; then
+  image_id="$1"; shift
+fi
+if [ $# -gt 0 ]; then
+  image_version="$1"; shift
+fi
+
+[ -n "${image_id}" ] || die 'Missing image_id\n'
+[ -n "${image_version}" ] || die 'Missing image_version\n'
+image_prefix="${image_id}_${image_version}"
+
+source_type=
+if [ -b "${install_from}" ]; then
+  # installing from partitions on a disk
+  lsblk -f "${install_from}"
+  source_type=gpt
+elif [ -d "${install_from}" ]; then
+  # installing from image files in a directory
+  source_type=dir
+else
+  die 'Not a directory or block device: %s\n' "${install_from}"
+fi
+
+printf 'Installation source: %s\n' "${install_from}"
+ls -l "${install_from}"
+printf '\n'
+printf 'Install version: %s\n' "${image_version}"
+
+printf 'Checking if VG %s exists\n' "${target_vg}"
+vgdisplay "${target_vg}" || die 'Create the target VG %s first\n' "${target_vg}"
+printf 'Found %s\n' "${target_vg}"
+lvs "${target_vg}" || true
+
+printf 'Creating LVs and copying blocks and files\n'
+for image_type in root usr; do
+  verity_roothash="$(kernel_cmdline_arg "${image_type}hash")"
+  if [ "${source_type}" = 'gpt' ]; then
+    # Search for partitions according to Discoverable Partitions Specification
+    [ -n "${verity_roothash}" ] || continue
+    verity_data_uuid="$(verity_data_uuid_from_roothash "${verity_roothash}")"
+    verity_hash_uuid="$(verity_hash_uuid_from_roothash "${verity_roothash}")"
+    image_source="$(lsblk -rn "${install_from}" \
+      -Q "PARTUUID == \"${verity_data_uuid}\"")" || true
+    if [ -z "${image_source}" ]; then
+      image_source="$(lsblk -rn "${install_from}" \
+        -Q "PARTTYPE == \"$(systemd-id128 show --value --uuid "${image_type}")\"")" || true
+    fi
+    [ -e "${image_source}" ] || continue
+    verity_source="$(lsblk -rn "${install_from}" \
+      -Q "PARTUUID == \"${verity_hash_uuid}\"")" || true
+    if [ -z "${verity_source}" ]; then
+      verity_source="$(lsblk -rn "${install_from}" \
+        -Q "PARTTYPE == \"$(systemd-id128 show --value --uuid "${image_type}-verity")\"")" || true
+    fi
+    verity_sig_source="$(lsblk -rn "${install_from}" \
+        -Q "PARTTYPE == \"$(systemd-id128 show --value --uuid "${image_type}-verity-sig")\"")" || true
+  else
+    # Use image files from the given directory
+    image_source="${install_from}/${image_prefix}/${image_type}-${arch}.raw"
+    [ -f "${image_source}" ] || continue
+    verity_source="${image_source%.raw}-verity.raw"
+    verity_sig_source="${verity_source%.raw}-sig.raw"
+  fi
+
+  ls -l \
+    "${image_source}" \
+    "${verity_source}" \
+    "${verity_sig_source}" \
+    || true
+
+  lv_name="${image_prefix}_${image_type}-${arch}"
+  if lvdisplay --column "${target_vg}/${lv_name}" 2>/dev/null; then
+    printf 'LV %s already exists! Skipping\n' "${target_vg}/${lv_name}"
+    continue
+  fi
+
+  # Source image size
+  lv_size_b="$(source_size_bytes "${image_source}")"
+
+  if [ -e "${verity_source}" ]; then
+    printf 'Found dm-verity image for %s: %s\n' "${image_source##*/}" "${verity_source}"
+    verity_size_b="$(source_size_bytes "${verity_source}")"
+
+    if [ -e "${verity_sig_source}" ]; then
+      printf 'Found signed verity roothash %s\n' "${verity_sig_source}"
+      printf 'Copying verity signature to LV %s\n' "${lv_name}-verity-sig"
+      verity_roothash="$(jq -j .rootHash < "${verity_sig_source}")" || true
+      verity_sig="$(jq -j .signature < "${verity_sig_source}")" || true
+      if [ -z "${verity_roothash}" ] || [ -z "${verity_sig}" ]; then
+        die 'Invalid verity signature source "%s"\n' "${verity_sig_source}"
+      fi
+      if lvdisplay --column "${target_vg}/${lv_name}-verity-sig" 2>/dev/null; then
+        lvremove -y -v "${target_vg}/${lv_name}-verity-sig"
+      fi
+      lvcreate -v -y \
+        --addtag "@image:${image_id}" \
+        --addtag "@type:${image_type}-verity-sig" \
+        --addtag "@verity:sig" \
+        --addtag "@version:${image_version}" \
+        --addtag "@roothash:${verity_roothash}" \
+        -L "1M" \
+        -n "${lv_name}-verity-sig" \
+        "${target_vg}"
+      dev="/dev/${target_vg}/${lv_name}-verity-sig"
+      # conv=sync to fill the LV with null bytes after the end of the signature file.
+      udevadm lock -d "${dev}" \
+        dd status=progress \
+          bs=1M \
+          count=1 \
+          conv=fsync,sync \
+          oflag=direct \
+          if="${verity_sig_source}" \
+          of="${dev}"
+      # change permission to readonly
+      lvchange -p r "${target_vg}/${lv_name}-verity-sig" || true
+    fi
+
+    printf 'Creating verity volume %s\n' "${lv_name}-verity"
+    if lvdisplay --column "${target_vg}/${lv_name}-verity" 2>/dev/null; then
+      lvremove -y -v "${target_vg}/${lv_name}-verity"
+    fi
+    lvcreate -v -y \
+      --addtag "@image:${image_id}" \
+      --addtag "@type:${image_type}-verity" \
+      --addtag "@verity:hash" \
+      --addtag "@version:${image_version}" \
+      ${verity_roothash:+--addtag "@roothash:${verity_roothash}"} \
+      -L "${verity_size_b}B" \
+      -n "${lv_name}-verity" \
+      "${target_vg}"
+    printf 'Copying verity hash data...\n'
+    dev="/dev/${target_vg}/${lv_name}-verity"
+    udevadm lock -d "${dev}" \
+      dd status=progress \
+        bs=16M \
+        conv=fsync \
+        oflag=direct \
+        if="${verity_source}" \
+        of="${dev}"
+    # change permission to readonly
+    lvchange -p r "${target_vg}/${lv_name}-verity" || true
+  fi
+
+  printf 'Installing %s to LV %s...\n' "${image_source}" "${target_vg}/${lv_name}"
+  lvcreate -v -y \
+    --addtag "@image:${image_id}" \
+    --addtag "@type:${image_type}" \
+    ${verity_source:+--addtag "@verity:data"} \
+    --addtag "@version:${image_version}" \
+    ${verity_roothash:+--addtag "@roothash:${verity_roothash}"} \
+    -L "${lv_size_b}B" \
+    -n "${lv_name}" \
+    "${target_vg}"
+  udevadm lock -d "/dev/${target_vg}/${lv_name}" \
+    dd status=progress \
+      bs=16M \
+      conv=fsync \
+      oflag=direct \
+      if="${image_source}" \
+      of="/dev/${target_vg}/${lv_name}"
+  lvchange -p r "${target_vg}/${lv_name}" || true
+done
+
+printf 'VG %s is ready\n' "${target_vg}"
+
+vgdisplay "${target_vg}"
+lvs "${target_vg}"

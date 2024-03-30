@@ -1,0 +1,49 @@
+#!/usr/bin/sh
+set -euf
+
+die() {
+  if [ $# -gt 0 ]; then
+    >&2 printf "$@"
+  fi  
+  exit 1
+}
+
+usage() {
+  printf 'Usage: %s <vg_name> <lv_name> <size> [extra lvcreate args...]\n' "${0##*/}"
+  printf '%s\n' \
+    '' \
+    'Create an LV in the given VG using raid1 mirroring if possible.'
+}
+
+if [ $# -lt 3 ]; then
+  usage
+  exit 2
+fi
+
+vg_name="$1";shift
+lv_name="$1";shift
+lv_size="$1";shift
+
+vgdisplay --column "${vg_name}" || die 'Missing VG %s\n' "${vg_name}"
+num_pvs="$(vgdisplay --column --noheading -o 'pv_count' "${vg_name}")"
+if [ "${num_pvs}" -gt 1 ]; then
+  # Use RAID1 mirroring if we are using more than one PV
+  set -- \
+    --type=raid1 \
+    --mirrors=1 \
+    --raidintegrity=y \
+    --raidintegrityblocksize=4096 \
+    "$@"
+fi
+
+lvcreate --verbose \
+  --activate y --yes \
+  "${vg_name}" \
+  --name="${var_name}" \
+  --size="${var_size}" \
+  "$@"
+
+udevadm lock -d "/dev/${vg_name}/${var_name}" \
+  mkfs.xfs \
+  -L "${var_name}" \
+  "/dev/${vg_name}/${var_name}"

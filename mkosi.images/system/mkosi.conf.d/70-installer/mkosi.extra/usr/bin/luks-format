@@ -1,0 +1,273 @@
+#!/usr/bin/sh
+set -eu
+
+locked=
+if [ $# -gt 1 ] && [ "$1" = 'locked' ]; then
+  locked="$1"; shift
+fi
+
+die() {
+  if [ $# -gt 0 ]; then
+    >&2 printf "$@"
+  fi
+  exit 1
+}
+
+usage() {
+  printf 'Usage: %s <device>\n' "${0##*/}"
+  printf 'Format the given partition as a LUKS2 device.\n'
+  printf 'Optional behaviour can be controlled via environment variables (see source).\n'
+}
+
+if [ $# -ne 1 ]; then
+  usage >&2
+  exit 2
+fi
+
+if [ "$1" = '--help' ]; then
+  usage
+  exit 0
+fi
+
+random_number_in_range() {
+  if [ $# -ne 1 ]; then
+    die 'Usage: random_number_in_range <min-max>\n'
+  fi
+  shuf -i "$1" -n 1
+}
+
+blkdev="$1";shift
+
+if cryptsetup isLuks "${blkdev}"; then
+  if [ -n "${LUKSFORMAT_DETACHED_HEADER:-}" ]; then
+    die 'Error: %s contains a LUKS header\n' "${blkdev}"
+  else
+    printf '%s already contains a LUKS header (skipped)\n' "${blkdev}"
+    exit 0
+  fi
+fi
+
+if [ -z "${locked}" ]; then
+  printf 'Acquiring exclusive lock on %s\n' "${blkdev}"
+  set -x
+  exec udevadm lock -d "${blkdev}" "$0" 'locked' "${blkdev}" "$@"
+fi
+
+if [ -z "${LUKSFORMAT_LABEL+set}" ]; then
+  LUKSFORMAT_LABEL="$(lsblk -rnd -o PARTLABEL "${blkdev}" || printf '%s' "${blkdev##*/}")"
+fi
+
+: "${LUKSFORMAT_CIPHER:=aes-xts-plain64}"
+: "${LUKSFORMAT_CIPHER_KEYSIZE:=512}"
+# authenticated encryption can be used to protect against outside modification of the encrypted data
+: "${LUKSFORMAT_INTEGRITY:=}"
+# Enroll TPM2 key after formatting?
+: "${LUKSFORMAT_TPM2_DEVICE:=}"
+# TPM2 PCRs to bind encryption to
+: "${LUKSFORMAT_TPM2_PCRS=7}"
+# Create detached header?
+: "${LUKSFORMAT_DETACHED_HEADER:=}"
+: "${LUKSFORMAT_FIDO2_DEVICE:=auto}"
+# Run mkfs on the device after formatting?
+: "${LUKSFORMAT_MKFS:=}"
+
+if [ -n "${LUKSFORMAT_DETACHED_HEADER}" ] && [ -e "${LUKSFORMAT_DETACHED_HEADER}" ]; then
+  die 'Header file "%s" already exists, aborting.\n' "${LUKSFORMAT_DETACHED_HEADER}"
+fi
+
+current_fstype="$(lsblk -r -o FSTYPE -d -n "${blkdev}")"
+if [ -n "${current_fstype}" ]; then
+  die 'Error: %s already contains a file system of type %s!\n' "${blkdev}" "${current_fstype}"
+fi
+
+detected_magics="$(wipefs -n "${blkdev}")"
+if [ -n "${detected_magics}" ]; then
+  die 'Error: Device %s already contains something:\n%s\n' "${blkdev}" "${detected_magics}"
+fi
+
+if ! systemd-ask-password \
+  --emoji=no \
+  --icon=dialog-warning \
+  --id="luks-format-detached:${blkdev}" \
+  -e "WARNING! THIS WILL ERASE EVERYTHING ON DEVICE ${blkdev}! Do you want to continue? (answer with uppercase 'yes')" | grep -Fxq 'YES'; then
+  die 'Aborting due to user input\n'
+fi
+
+if [ -n "${LUKSFORMAT_DETACHED_HEADER}" ]; then
+  printf 'Discarding all blocks on %s\n' "${blkdev}"
+
+  # Using a medium discard block size to avoid errors when running in QEMU (QEMU
+  # reports too large maximum discard size in certain scenarios)
+  # Fall back to zero-filling the first 1GB of the device if discard fails
+  blkdiscard -v -p 1G "${blkdev}" || blkdiscard -v "${blkdev}" || blkdiscard -v -z -p 16M -l 1G "${blkdev}"
+
+  printf 'Creating detached LUKS2 header %s\n' "${LUKSFORMAT_DETACHED_HEADER}"
+  # random starting offset aligned on a 4MB boundary (SSD friendly)
+  start_offset_4m="$(random_number_in_range 128-1024)"
+  start_offset_mb="$((start_offset_4m * 4))"
+  # --offset must be given in 512 byte sectors, regardless of --sector-size setting.
+  start_offset_blocks="$((start_offset_mb * 2048))"
+fi
+
+keyfile_tmp="$(mktemp -t "luks-format-temporary-keyfile-XXXXXXXX.bin")"
+dd if=/dev/urandom bs=256 count=1 of="${keyfile_tmp}" status=none
+
+# need to specify --luks2-keyslots-size to avoid having a multi-GB header file
+# when the data device offset is large.
+# the temporary key above has high entropy so using a quicker PBKDF method should be fine here.
+flock -x --verbose "$0" cryptsetup luksFormat \
+  --batch-mode \
+  --type luks2 \
+  ${LUKSFORMAT_DETACHED_HEADER:+--header "${LUKSFORMAT_DETACHED_HEADER}"} \
+  --key-file "${keyfile_tmp}" \
+  --pbkdf pbkdf2 \
+  --pbkdf-force-iterations=1000 \
+  --label "${LUKSFORMAT_LABEL}" \
+  --cipher "${LUKSFORMAT_CIPHER}" \
+  --key-size "${LUKSFORMAT_CIPHER_KEYSIZE}" \
+  --luks2-keyslots-size "16352k" \
+  --luks2-metadata-size "16k" \
+  ${LUKSFORMAT_INTEGRITY:+--integrity "${LUKSFORMAT_INTEGRITY}"} \
+  ${start_offset_blocks:+--offset "${start_offset_blocks}"} \
+  "${blkdev}"
+
+if [ -n "${LUKSFORMAT_DETACHED_HEADER}" ]; then
+  # We put noise junk data in the beginning of the device in order to hide the
+  # real start of the encrypted data.
+  # cryptsetup seems to discard all blocks on the whole device when doing
+  # luksFormat, including whatever noise we put before the data payload start
+  # offset, so we need to do this after luksFormat. This is likely just a
+  # special use case that the original developers of the luksFormat code had
+  # not considered.
+  wipedev="tmp-cryptwipe-${blkdev##*/}-${RANDOM}"
+
+  printf 'Writing white noise to leading %u MiB of device %s via dm-crypt mapping %s\n' "${start_offset_mb}" "${blkdev}" "${wipedev}"
+  # Write random junk in the leading GBs of the drive for hiding the true
+  # beginning of the encrypted data
+  cryptsetup open --type plain \
+    --key-file /dev/urandom \
+    --sector-size 4096 \
+    --cipher aes-xts-plain64 \
+    --key-size 512 \
+    "${blkdev}" \
+    "${wipedev}"
+  time udevadm lock -d "/dev/mapper/${wipedev}" \
+    dd oflag=direct conv=fsync status=progress \
+      bs=4M count="${start_offset_4m}" \
+      if=/dev/zero of="/dev/mapper/${wipedev}"
+
+  if ! ( cryptsetup close "${wipedev}" || cryptsetup close "${wipedev}" --debug ); then
+    printf 'Failed to close cryptwipe mapping %s: %s\n' "${wipedev}" "$?"
+    printf 'Will retry...\n'
+  fi
+  if cryptsetup status "${wipedev}"; then
+    printf 'dm-crypt mapping %s is still hanging on... waiting 1 second to let udev catch up\n' "${wipedev}"
+    printf 'Some debug info:\n'
+    ls -la "/dev/mapper/${wipedev}" || true
+    lsof -w | grep -F -e "/dev/dm-" -e "${wipedev}" || true
+    sleep 1
+    if cryptsetup status "${wipedev}" && ! cryptsetup close --debug "${wipedev}"; then
+      printf 'Failed to close cryptwipe mapping %s: %s\n' "${wipedev}" "$?"
+      printf 'Falling back to deferred close\n'
+      cryptsetup close --debug --deferred "${wipedev}"
+    fi
+  fi
+fi
+
+# LVM2 is a bit tricky about changing the name of PV device nodes, at least
+# with the Fedora default configuration, so ideally we want to use the final
+# cryptsetup mapping for the initialization. Most other file systems and
+# storage engines are not as sensitive though.
+tmp_mapping="luks-${blkdev##*/}"
+if [ -e "/dev/mapper/${tmp_mapping}" ]; then
+  tmp_mapping="tmp-luks-format-${blkdev##*/}-${RANDOM}"
+fi
+printf 'Activating dm-crypt mapping %s\n' "${tmp_mapping}"
+flock -x --verbose "$0" cryptsetup open --type luks2 \
+  ${LUKSFORMAT_DETACHED_HEADER:+--header "${LUKSFORMAT_DETACHED_HEADER}"} \
+  --key-file "${keyfile_tmp}" \
+  "${blkdev}" \
+  "${tmp_mapping}"
+
+printf 'Trying to update header config block to enable discards by default\n'
+if ! cryptsetup refresh \
+  ${LUKSFORMAT_DETACHED_HEADER:+--header "${LUKSFORMAT_DETACHED_HEADER}"} \
+  --key-file "${keyfile_tmp}" \
+  --persistent \
+  --allow-discards \
+  "${tmp_mapping}"; then
+  printf 'Header refresh failed, probably missing discard support, ignoring error.\n'
+fi
+
+if [ -n "${LUKSFORMAT_MKFS}" ]; then
+  printf 'Running mkfs command: %s\n' "${LUKSFORMAT_MKFS} \"/dev/mapper/${tmp_mapping}\""
+  udevadm lock -d "/dev/mapper/${tmp_mapping}" sh -c "${LUKSFORMAT_MKFS} '/dev/mapper/${tmp_mapping}'"
+fi
+
+printf 'Deactivating dm-crypt mapping %s\n' "${tmp_mapping}"
+if ! ( cryptsetup close "${tmp_mapping}" || cryptsetup close "${tmp_mapping}" --debug ); then
+  printf 'Failed to close temporary dm-crypt mapping %s: %s\n' "${tmp_mapping}" "$?"
+  printf 'Will retry...\n'
+fi
+if cryptsetup status "${tmp_mapping}"; then
+  printf 'dm-crypt mapping %s is still hanging on... waiting 1 second to let udev catch up\n' "${tmp_mapping}"
+  printf 'Some debug info:\n'
+  ls -la "/dev/mapper/${tmp_mapping}" || true
+  lsof -w | grep -F -e "/dev/dm-" -e "${tmp_mapping}" || true
+  sleep 1
+  if cryptsetup status "${tmp_mapping}" && ! cryptsetup close --debug "${tmp_mapping}"; then
+    printf 'Failed to close cryptwipe mapping %s: %s\n' "${tmp_mapping}" "$?"
+    printf 'Falling back to deferred close\n'
+    cryptsetup close --debug --deferred "${tmp_mapping}"
+  fi
+fi
+
+enroll_dev="${LUKSFORMAT_DETACHED_HEADER:-${blkdev}}"
+if [ -n "${LUKSFORMAT_TPM2_DEVICE:-}" ]; then
+  printf 'Binding encryption to TPM2 device %s and PCRs %s\n' "${LUKSFORMAT_TPM2_DEVICE}" "${LUKSFORMAT_TPM2_PCRS}"
+  flock -x --verbose "$0" systemd-cryptenroll --unlock-key-file="${keyfile_tmp}" \
+    --tpm2-device="${LUKSFORMAT_TPM2_DEVICE}" \
+    --tpm2-pcrs="${LUKSFORMAT_TPM2_PCRS}" \
+    --tpm2-public-key= \
+    --tpm2-signature= \
+    "${enroll_dev}"
+fi
+
+printf 'Adding FIDO2 as an unlock method and wiping temporary key\n'
+# Trying to work around a race on the FIDO2 device
+if [ -e '/dev/security/fido' ]; then
+  flock -x --verbose /dev/security/fido true
+fi
+retries=0
+until flock -x --verbose "$0" systemd-cryptenroll --unlock-key-file="${keyfile_tmp}" \
+  --wipe-slot=password \
+  --fido2-device="${LUKSFORMAT_FIDO2_DEVICE}" \
+  "${enroll_dev}"; do
+  if [ "${retries}" -gt 5 ]; then
+    printf 'Giving up enrolling FIDO2 for %s.\n' "${enroll_dev}"
+    exit 3
+  fi
+  printf 'Failed to enroll FIDO2 device for %s, retrying...\n' "${enroll_dev}"
+  sleep 1
+  if [ -e '/dev/security/fido' ]; then
+    flock -x --verbose /dev/security/fido true
+  fi
+  retries=$((retries + 1))
+done
+
+# Shred the temporary key since we don't need it anymore
+shred -z -u "${keyfile_tmp}"
+
+printf '\n\n'
+printf '%s\n' \
+  'Next steps:' \
+  '1. Create a recovery key!' \
+  '2. Create file system on encrypted device.' \
+  '3. Make backups of this USB drive.' \
+  '' \
+  '=========================================' \
+  '| WRITE DOWN THE RECOVERY KEY ON PAPER! |' \
+  '=========================================' \
+  ''
+
+printf 'All done!\n'

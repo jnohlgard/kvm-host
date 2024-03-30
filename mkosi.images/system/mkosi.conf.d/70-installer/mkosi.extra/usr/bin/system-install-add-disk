@@ -1,0 +1,59 @@
+#!/usr/bin/sh
+set -euf
+
+die() {
+  if [ $# -gt 0 ]; then
+    >&2 printf "$@"
+  fi  
+  exit 1
+}
+
+usage() {
+  printf 'Usage: %s <label_base> <device> [device]...\n' "${0##*/}"
+  printf '%s\n' \
+    '' \
+    'Format the given devices as LVM physical volumes (PV) inside LUKS encryption.' \
+    'If a whole disk is given, it will be partitioned using systemd-repart before formatting the PV.' \
+    'Environment variables can be used to adjust the LUKS configuration:' \
+    ' LUKSFORMAT_CIPHER - Cipher algorithm used. cryptsetup: --cipher' \
+    ' LUKSFORMAT_CIPHER_KEYSIZE - Cipher key size, in bits. cryptsetup: --key-size' \
+    ' LUKSFORMAT_LABEL - LUKS label to identify the encrypted partition. cryptsetup: --label' \
+    ' LUKSFORMAT_INTEGRITY - Use AEAD authenticated encryption. cryptsetup: --integrity' \
+    ' LUKSFORMAT_TPM2_DEVICE - Enroll a TPM2 hardware device for automatic unlocking. systemd-cryptenroll: --tpm2-device' \
+    ' LUKSFORMAT_TPM2_PCRS - Bind the TPM2 key to the provided PCRs. systemd-cryptenroll: --tpm2-pcrs' \
+    ' LUKSFORMAT_TPM2_PUBLIC_KEY_PCRS - Bind the TPM2 key to the provided PCRs. systemd-cryptenroll: --tpm2-public-key-pcrs' \
+    ' LUKSFORMAT_FIDO2_DEVICE - Enroll a FIDO2 hardware token, e.g. Yubikey. systemd-cryptenroll: --fido2-device' \
+    ' LUKSFORMAT_DETACHED_HEADER - Place the LUKS header in a separate file or device. Useful in very specific situations, not supported in this basic system setup. cryptsetup: --header'
+}
+
+if [ $# -lt 2 ]; then
+  usage
+  exit 2
+fi
+
+export LUKSFORMAT_MKFS='pvcreate --metadatasize=8m --dataalignment=16m --verbose --yes --devicesfile= '
+export LUKSFORMAT_TPM2_DEVICE="${LUKSFORMAT_TPM2_DEVICE:-auto}"
+label_base="$1"; shift
+repart_d='/usr/lib/repart-sys.d'
+repart_pv_num=2
+set -x
+# Get the number from any existing PVs to find where to start counting the index.
+last_existing_pv="$( \
+  blkid -o value -s LABEL | \
+  grep -x -E -e "${label_base}-[0-9]+" | \
+  sort -t - -k 2 -n | \
+  tail -n 1 \
+  || printf '%s-0' "${label_base}" \
+  )"
+idx="${last_existing_pv##*-}"
+for dev in "$@"; do
+  idx=$((idx + 1))
+  if udevadm info -q path "${dev}" | grep -E -e '^/devices/pci'; then
+    devtype="$(udevadm info -q property --property=DEVTYPE --value "${dev}" || true)"
+    if [ "${devtype}" = "disk" ]; then
+      systemd-repart --empty=allow --dry-run=no --definitions="${repart_d}" "${dev}"
+      dev="${dev}${repart_pv_num}"
+    fi
+  fi
+  LUKSFORMAT_LABEL="${label_base}-${idx}" luks-format "${dev}"
+done
