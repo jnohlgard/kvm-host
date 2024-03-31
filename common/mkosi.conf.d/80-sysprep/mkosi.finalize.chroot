@@ -1,0 +1,11 @@
+#!/usr/bin/sh
+set -euf
+
+# Create empty reference files for some /etc files to allow setting default SELinux context on them.
+for f in \
+  '/etc/ld.so.cache' \
+  '/etc/.pwd.lock' \
+; do
+  touch "${f}"
+  restorecon -rFv "${f}"
+done
