@@ -1,10 +1,5 @@
 #!/usr/bin/sh
-set -eu
-
-locked=
-if [ $# -gt 1 ] && [ "$1" = 'locked' ]; then
-  locked="$1"; shift
-fi
+set -euf
 
 die() {
   if [ $# -gt 0 ]; then
@@ -36,6 +31,29 @@ random_number_in_range() {
   shuf -i "$1" -n 1
 }
 
+cryptsetup_close_retry() {
+  [ $# -eq 1 ] || die 'usage: cryptsetup_close_retry <mapping>\n'
+  crypt_mapping="$1";shift
+  if ! ( cryptsetup close "${crypt_mapping}" || cryptsetup close "${crypt_mapping}" --debug ); then
+    printf 'Failed to close DM-crypt mapping %s: %s\n' "${crypt_mapping}" "$?"
+    printf 'Retrying...\n'
+    sleep 1
+    udevadm settle -t 3
+  fi
+  if cryptsetup status "${crypt_mapping}"; then
+    printf 'dm-crypt mapping %s is still hanging on... waiting 1 second to let udev catch up\n' "${crypt_mapping}"
+    printf 'Some debug info:\n'
+    ls -la "/dev/mapper/${crypt_mapping}" || true
+    lsof -w | grep -F -e "/dev/dm-" -e "${crypt_mapping}" || true
+    sleep 1
+    if cryptsetup status "${crypt_mapping}" && ! cryptsetup close --debug "${crypt_mapping}"; then
+      printf 'Failed to close DM-crypt mapping %s: %s\n' "${crypt_mapping}" "$?"
+      printf 'Falling back to deferred close\n'
+      cryptsetup close --debug --deferred "${crypt_mapping}"
+    fi
+  fi
+}
+
 blkdev="$1";shift
 
 if cryptsetup isLuks "${blkdev}"; then
@@ -45,12 +63,6 @@ if cryptsetup isLuks "${blkdev}"; then
     printf '%s already contains a LUKS header (skipped)\n' "${blkdev}"
     exit 0
   fi
-fi
-
-if [ -z "${locked}" ]; then
-  printf 'Acquiring exclusive lock on %s\n' "${blkdev}"
-  set -x
-  exec udevadm lock -d "${blkdev}" "$0" 'locked' "${blkdev}" "$@"
 fi
 
 if [ -z "${LUKSFORMAT_LABEL+set}" ]; then
@@ -67,7 +79,8 @@ fi
 : "${LUKSFORMAT_TPM2_PCRS=7}"
 # Create detached header?
 : "${LUKSFORMAT_DETACHED_HEADER:=}"
-: "${LUKSFORMAT_FIDO2_DEVICE:=auto}"
+# Automatically enroll FIDO2 hardware token?
+: "${LUKSFORMAT_FIDO2_DEVICE=auto}"
 # Run mkfs on the device after formatting?
 : "${LUKSFORMAT_MKFS:=}"
 
@@ -93,13 +106,30 @@ if ! systemd-ask-password \
   die 'Aborting due to user input\n'
 fi
 
+locked_dev="udevadm lock -d '${blkdev}'"
+# We create the header detached in a temporary file first, enrolling all tokens
+# and passphrases, before writing it to the destination device or header file.
+# This process avoids races between udev detecting the device between the
+# enrollment steps.
+# We preallocate the header file to a suitable size to avoid multi-GB detached
+# headers in the cases where the offset is not at the start of the partition.
+header_tmp="$(mktemp -t "luks-format-temporary-header-XXXXXXXX.bin")"
+# 16 MiB is the default LUKS2 header size
+dd if=/dev/zero bs=16M count=1 of="${header_tmp}" status=none
+# LUKS with detached header normally begins its data at offset 0, but if we
+# want to be able to reattach the header to the data disk we need to set the
+# offset past the header, or else header and encrypted data will overlap.
+start_offset_blocks=$((16 * 2048))
+
 if [ -n "${LUKSFORMAT_DETACHED_HEADER}" ]; then
   printf 'Discarding all blocks on %s\n' "${blkdev}"
 
   # Using a medium discard block size to avoid errors when running in QEMU (QEMU
   # reports too large maximum discard size in certain scenarios)
   # Fall back to zero-filling the first 1GB of the device if discard fails
-  blkdiscard -v -p 1G "${blkdev}" || blkdiscard -v "${blkdev}" || blkdiscard -v -z -p 16M -l 1G "${blkdev}"
+  ${locked_dev} blkdiscard -v -p 1G "${blkdev}" || \
+    ${locked_dev} blkdiscard -v "${blkdev}" || \
+    ${locked_dev} blkdiscard -v -z -p 16M -l 1G "${blkdev}"
 
   printf 'Creating detached LUKS2 header %s\n' "${LUKSFORMAT_DETACHED_HEADER}"
   # random starting offset aligned on a 4MB boundary (SSD friendly)
@@ -109,27 +139,68 @@ if [ -n "${LUKSFORMAT_DETACHED_HEADER}" ]; then
   start_offset_blocks="$((start_offset_mb * 2048))"
 fi
 
+# During the enrollment process we use a temporary keyfile to unlock the LUKS
+# device to save the user from entering their passphrase or PIN so many times.
 keyfile_tmp="$(mktemp -t "luks-format-temporary-keyfile-XXXXXXXX.bin")"
 dd if=/dev/urandom bs=256 count=1 of="${keyfile_tmp}" status=none
 
-# need to specify --luks2-keyslots-size to avoid having a multi-GB header file
-# when the data device offset is large.
-# the temporary key above has high entropy so using a quicker PBKDF method should be fine here.
-flock -x --verbose "$0" cryptsetup luksFormat \
+# the temporary key above has high entropy so using a quicker PBKDF method and
+# iterations should be fine here.
+flock -x --verbose "$0" \
+  cryptsetup luksFormat --type=luks2 \
   --batch-mode \
-  --type luks2 \
-  ${LUKSFORMAT_DETACHED_HEADER:+--header "${LUKSFORMAT_DETACHED_HEADER}"} \
-  --key-file "${keyfile_tmp}" \
-  --pbkdf pbkdf2 \
+  --header="${header_tmp}" \
+  --offset="${start_offset_blocks}" \
+  --label="${LUKSFORMAT_LABEL}" \
+  --cipher="${LUKSFORMAT_CIPHER}" \
+  --key-size="${LUKSFORMAT_CIPHER_KEYSIZE}" \
+  --key-file="${keyfile_tmp}" \
+  --pbkdf=pbkdf2 \
   --pbkdf-force-iterations=1000 \
-  --label "${LUKSFORMAT_LABEL}" \
-  --cipher "${LUKSFORMAT_CIPHER}" \
-  --key-size "${LUKSFORMAT_CIPHER_KEYSIZE}" \
-  --luks2-keyslots-size "16352k" \
-  --luks2-metadata-size "16k" \
-  ${LUKSFORMAT_INTEGRITY:+--integrity "${LUKSFORMAT_INTEGRITY}"} \
-  ${start_offset_blocks:+--offset "${start_offset_blocks}"} \
+  ${LUKSFORMAT_INTEGRITY:+--integrity="${LUKSFORMAT_INTEGRITY}"} \
   "${blkdev}"
+
+if [ -n "${LUKSFORMAT_TPM2_DEVICE:-}" ]; then
+  printf 'Binding encryption to TPM2 device %s and PCRs %s\n' \
+    "${LUKSFORMAT_TPM2_DEVICE}" \
+    "${LUKSFORMAT_TPM2_PCRS}"
+  flock -x --verbose "$0" \
+    systemd-cryptenroll \
+    --unlock-key-file="${keyfile_tmp}" \
+    --tpm2-device="${LUKSFORMAT_TPM2_DEVICE}" \
+    --tpm2-pcrs="${LUKSFORMAT_TPM2_PCRS}" \
+    --tpm2-public-key= \
+    --tpm2-public-key-pcrs="${LUKSFORMAT_TPM2_PUBLIC_KEY_PCRS:-11}" \
+    --tpm2-signature= \
+    "${header_tmp}"
+fi
+
+if [ -n "${LUKSFORMAT_FIDO2_DEVICE:-}" ]; then
+  printf 'Adding FIDO2 as an unlock method and wiping temporary key\n'
+  # Trying to work around a race on the FIDO2 device
+  if [ -e '/dev/security/fido' ]; then
+    flock -x --verbose /dev/security/fido true
+  fi
+  retries=0
+  until flock -x --verbose "$0" \
+    systemd-cryptenroll \
+    --unlock-key-file="${keyfile_tmp}" \
+    --fido2-device="${LUKSFORMAT_FIDO2_DEVICE}" \
+    "${header_tmp}"; do
+    if [ "${retries}" -gt 5 ]; then
+      printf 'Giving up enrolling FIDO2 for %s.\n' "${enroll_dev}"
+      exit 3
+    fi
+    printf 'Failed to enroll FIDO2 device for %s, retrying...\n' "${enroll_dev}"
+    sleep 1
+    if [ -e '/dev/security/fido' ]; then
+      flock -x --verbose /dev/security/fido true
+    fi
+    retries=$((retries + 1))
+  done
+else
+  >&2 printf 'Warning! Not adding any FIDO2 hardware keys. Only the recovery key below will be able to add new passwords and tokens.\n'
+fi
 
 if [ -n "${LUKSFORMAT_DETACHED_HEADER}" ]; then
   # We put noise junk data in the beginning of the device in order to hide the
@@ -141,133 +212,100 @@ if [ -n "${LUKSFORMAT_DETACHED_HEADER}" ]; then
   # not considered.
   wipedev="tmp-cryptwipe-${blkdev##*/}-${RANDOM}"
 
-  printf 'Writing white noise to leading %u MiB of device %s via dm-crypt mapping %s\n' "${start_offset_mb}" "${blkdev}" "${wipedev}"
-  # Write random junk in the leading GBs of the drive for hiding the true
-  # beginning of the encrypted data
-  cryptsetup open --type plain \
-    --key-file /dev/urandom \
-    --sector-size 4096 \
-    --cipher aes-xts-plain64 \
-    --key-size 512 \
+  printf 'Writing white noise to leading %u MiB of device %s via dm-crypt mapping %s\n' \
+    "${start_offset_mb}" \
     "${blkdev}" \
     "${wipedev}"
+
+  # Write random junk in the leading GBs of the drive for hiding the true
+  # beginning of the encrypted data
+  cryptsetup open --type=plain \
+    --key-file=/dev/urandom \
+    --sector-size=4096 \
+    --cipher=aes-xts-plain64 \
+    --key-size=512 \
+    "${blkdev}" \
+    "${wipedev}"
+
   time udevadm lock -d "/dev/mapper/${wipedev}" \
     dd oflag=direct conv=fsync status=progress \
       bs=4M count="${start_offset_4m}" \
       if=/dev/zero of="/dev/mapper/${wipedev}"
 
-  if ! ( cryptsetup close "${wipedev}" || cryptsetup close "${wipedev}" --debug ); then
-    printf 'Failed to close cryptwipe mapping %s: %s\n' "${wipedev}" "$?"
-    printf 'Will retry...\n'
-  fi
-  if cryptsetup status "${wipedev}"; then
-    printf 'dm-crypt mapping %s is still hanging on... waiting 1 second to let udev catch up\n' "${wipedev}"
-    printf 'Some debug info:\n'
-    ls -la "/dev/mapper/${wipedev}" || true
-    lsof -w | grep -F -e "/dev/dm-" -e "${wipedev}" || true
-    sleep 1
-    if cryptsetup status "${wipedev}" && ! cryptsetup close --debug "${wipedev}"; then
-      printf 'Failed to close cryptwipe mapping %s: %s\n' "${wipedev}" "$?"
-      printf 'Falling back to deferred close\n'
-      cryptsetup close --debug --deferred "${wipedev}"
-    fi
-  fi
+  cryptsetup_close_retry "${wipedev}"
 fi
 
-# LVM2 is a bit tricky about changing the name of PV device nodes, at least
-# with the Fedora default configuration, so ideally we want to use the final
-# cryptsetup mapping for the initialization. Most other file systems and
-# storage engines are not as sensitive though.
 tmp_mapping="luks-${blkdev##*/}"
+if [ -z "${LUKSFORMAT_DETACHED_HEADER}" ]; then
+  tmp_mapping="luks-$(cryptsetup luksUUID "${header_tmp}")"
+fi
 if [ -e "/dev/mapper/${tmp_mapping}" ]; then
   tmp_mapping="tmp-luks-format-${blkdev##*/}-${RANDOM}"
 fi
+
 printf 'Activating dm-crypt mapping %s\n' "${tmp_mapping}"
-flock -x --verbose "$0" cryptsetup open --type luks2 \
-  ${LUKSFORMAT_DETACHED_HEADER:+--header "${LUKSFORMAT_DETACHED_HEADER}"} \
-  --key-file "${keyfile_tmp}" \
-  "${blkdev}" \
-  "${tmp_mapping}"
-
 printf 'Trying to update header config block to enable discards by default\n'
-if ! cryptsetup refresh \
-  ${LUKSFORMAT_DETACHED_HEADER:+--header "${LUKSFORMAT_DETACHED_HEADER}"} \
-  --key-file "${keyfile_tmp}" \
-  --persistent \
-  --allow-discards \
-  "${tmp_mapping}"; then
-  printf 'Header refresh failed, probably missing discard support, ignoring error.\n'
+if ! flock -x --verbose "$0" \
+    cryptsetup open --type=luks2 \
+    --header="${header_tmp}" \
+    --key-file="${keyfile_tmp}" \
+    --disable-external-tokens \
+    --persistent \
+    --allow-discards \
+    "${blkdev}" \
+    "${tmp_mapping}" \
+  ; then
+  printf 'Header refresh failed, probably missing discard support\n'
+  printf 'Retrying without --allow-discards.\n'
+  flock -x --verbose "$0" \
+    cryptsetup open --type=luks2 \
+    --header="${header_tmp}" \
+    --key-file="${keyfile_tmp}" \
+    --disable-external-tokens \
+    "${blkdev}" \
+    "${tmp_mapping}"
 fi
-
 if [ -n "${LUKSFORMAT_MKFS}" ]; then
   printf 'Running mkfs command: %s\n' "${LUKSFORMAT_MKFS} \"/dev/mapper/${tmp_mapping}\""
-  udevadm lock -d "/dev/mapper/${tmp_mapping}" sh -c "${LUKSFORMAT_MKFS} '/dev/mapper/${tmp_mapping}'"
+  udevadm lock -d "/dev/mapper/${tmp_mapping}" \
+    ${LUKSFORMAT_MKFS} "/dev/mapper/${tmp_mapping}"
 fi
 
-printf 'Deactivating dm-crypt mapping %s\n' "${tmp_mapping}"
-if ! ( cryptsetup close "${tmp_mapping}" || cryptsetup close "${tmp_mapping}" --debug ); then
-  printf 'Failed to close temporary dm-crypt mapping %s: %s\n' "${tmp_mapping}" "$?"
-  printf 'Will retry...\n'
-fi
-if cryptsetup status "${tmp_mapping}"; then
-  printf 'dm-crypt mapping %s is still hanging on... waiting 1 second to let udev catch up\n' "${tmp_mapping}"
-  printf 'Some debug info:\n'
-  ls -la "/dev/mapper/${tmp_mapping}" || true
-  lsof -w | grep -F -e "/dev/dm-" -e "${tmp_mapping}" || true
-  sleep 1
-  if cryptsetup status "${tmp_mapping}" && ! cryptsetup close --debug "${tmp_mapping}"; then
-    printf 'Failed to close cryptwipe mapping %s: %s\n' "${tmp_mapping}" "$?"
-    printf 'Falling back to deferred close\n'
-    cryptsetup close --debug --deferred "${tmp_mapping}"
-  fi
-fi
-
-enroll_dev="${LUKSFORMAT_DETACHED_HEADER:-${blkdev}}"
-if [ -n "${LUKSFORMAT_TPM2_DEVICE:-}" ]; then
-  printf 'Binding encryption to TPM2 device %s and PCRs %s\n' "${LUKSFORMAT_TPM2_DEVICE}" "${LUKSFORMAT_TPM2_PCRS}"
-  flock -x --verbose "$0" systemd-cryptenroll --unlock-key-file="${keyfile_tmp}" \
-    --tpm2-device="${LUKSFORMAT_TPM2_DEVICE}" \
-    --tpm2-pcrs="${LUKSFORMAT_TPM2_PCRS}" \
-    --tpm2-public-key= \
-    --tpm2-signature= \
-    "${enroll_dev}"
-fi
-
-printf 'Adding FIDO2 as an unlock method and wiping temporary key\n'
-# Trying to work around a race on the FIDO2 device
-if [ -e '/dev/security/fido' ]; then
-  flock -x --verbose /dev/security/fido true
-fi
-retries=0
-until flock -x --verbose "$0" systemd-cryptenroll --unlock-key-file="${keyfile_tmp}" \
+flock -x --verbose "$0" \
+  systemd-cryptenroll \
+  --unlock-key-file="${keyfile_tmp}" \
   --wipe-slot=password \
-  --fido2-device="${LUKSFORMAT_FIDO2_DEVICE}" \
-  "${enroll_dev}"; do
-  if [ "${retries}" -gt 5 ]; then
-    printf 'Giving up enrolling FIDO2 for %s.\n' "${enroll_dev}"
-    exit 3
-  fi
-  printf 'Failed to enroll FIDO2 device for %s, retrying...\n' "${enroll_dev}"
-  sleep 1
-  if [ -e '/dev/security/fido' ]; then
-    flock -x --verbose /dev/security/fido true
-  fi
-  retries=$((retries + 1))
-done
+  --recovery-key \
+  "${header_tmp}"
 
 # Shred the temporary key since we don't need it anymore
 shred -z -u "${keyfile_tmp}"
 
+cryptsetup_close_retry "${tmp_mapping}"
+
+if [ -z "${LUKSFORMAT_DETACHED_HEADER}" ]; then
+  printf 'Writing LUKS header to device %s\n' "${blkdev}"
+else
+  printf 'Writing LUKS header to file %s\n' "${LUKSFORMAT_DETACHED_HEADER}"
+fi
+cryptsetup luksHeaderRestore \
+  --header-backup-file="${header_tmp}" \
+  ${LUKSFORMAT_DETACHED_HEADER:+--header="${LUKSFORMAT_DETACHED_HEADER}"} \
+  "${blkdev}"
+
+# Done using the temporary LUKS header file
+shred -z -u "${header_tmp}"
+
 printf '\n\n'
 printf '%s\n' \
+  'LUKS device formatted' \
+  '' \
   'Next steps:' \
-  '1. Create a recovery key!' \
+  '1. Write down the recovery key!' \
   '2. Create file system on encrypted device.' \
-  '3. Make backups of this USB drive.' \
+  '3. Make backups of the LUKS headers.' \
   '' \
   '=========================================' \
   '| WRITE DOWN THE RECOVERY KEY ON PAPER! |' \
   '=========================================' \
   ''
-
-printf 'All done!\n'

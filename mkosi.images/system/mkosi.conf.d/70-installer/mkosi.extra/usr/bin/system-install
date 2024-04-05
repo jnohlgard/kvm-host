@@ -1,8 +1,7 @@
 #!/usr/bin/sh
 set -euf
-incdir=/usr/lib/os-installer
-. "${incdir}/die.inc.sh"
-. "${incdir}/devices.inc.sh"
+incdir=/usr/lib
+. "${incdir}/lv-verity.inc.sh"
 
 usage() {
   printf 'Usage: %s <device> [device]...\n' "${0##*/}"
@@ -38,11 +37,22 @@ fi
 
 system-install-add-disk "${label_base}" "$@"
 
+udevadm settle -t 3 || true
+
+systemd-tty-ask-password-agent --list
+
+if [ -t 0 ]; then
+  systemd-tty-ask-password-agent --query
+fi
+
+systemctl start luks-unlock.target
+
 # find all PVs labeled pvsys-*
 # Because of nested devices (partitions and LUKS containers) we need to do some recursion to figure out which devices we want.
 luks_devices=$( \
   lsblk -o 'PATH,FSTYPE,LABEL' -J -T "$@" | \
-  jq -r '.blockdevices[] | recurse(.children[]?) | select( .fstype == "crypto_LUKS" and ( .label | test("^'"${label_base}"'-[0-9]+$") )) | .children[]? | .path')
+  jq -r '.blockdevices[] | recurse(.children[]?) | select( .fstype == "crypto_LUKS" and ( .label | test("^'"${label_base}"'-[0-9]+$") )) | .children[]? | .path'
+)
 [ -n "${luks_devices}" ] || die 'Failed to find any open LUKS devices matching label=%s-*\n' "${label_base}"
 
 vgcreate --verbose \

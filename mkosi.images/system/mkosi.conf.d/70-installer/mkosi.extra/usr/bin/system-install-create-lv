@@ -25,7 +25,7 @@ lv_name="$1";shift
 lv_size="$1";shift
 
 vgdisplay --column "${vg_name}" || die 'Missing VG %s\n' "${vg_name}"
-num_pvs="$(vgdisplay --column --noheading -o 'pv_count' "${vg_name}")"
+num_pvs="$(vgs --noheading --separator=' ' -o 'pv_count' "${vg_name}")"
 if [ "${num_pvs}" -gt 1 ]; then
   # Use RAID1 mirroring if we are using more than one PV
   set -- \
@@ -37,13 +37,14 @@ if [ "${num_pvs}" -gt 1 ]; then
 fi
 
 lvcreate --verbose \
+  --config='activation/verify_udev_operations=1' \
   --activate y --yes \
   "${vg_name}" \
-  --name="${var_name}" \
-  --size="${var_size}" \
+  --name="${lv_name}" \
+  --size="${lv_size}" \
   "$@"
 
-udevadm lock -d "/dev/${vg_name}/${var_name}" \
+udevadm lock -d "/dev/${vg_name}/${lv_name}" \
   mkfs.xfs \
-  -L "${var_name}" \
-  "/dev/${vg_name}/${var_name}"
+  -L "${lv_name}" \
+  "/dev/${vg_name}/${lv_name}"

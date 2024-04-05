@@ -1,8 +1,7 @@
 #!/usr/bin/sh
 set -euf
-incdir=/usr/lib/os-installer
-. "${incdir}/die.inc.sh"
-. "${incdir}/devices.inc.sh"
+incdir=/usr/lib/
+. "${incdir}/lv-verity.inc.sh"
 
 usage() {
   printf 'Usage: %s [install_from] [target_vg] [image_id] [image_version]\n' "${0##*/}"
@@ -76,20 +75,20 @@ for image_type in root usr; do
     [ -n "${verity_roothash}" ] || continue
     verity_data_uuid="$(verity_data_uuid_from_roothash "${verity_roothash}")"
     verity_hash_uuid="$(verity_hash_uuid_from_roothash "${verity_roothash}")"
-    image_source="$(lsblk -rn "${install_from}" \
+    image_source="$(lsblk -rn -o 'path' "${install_from}" \
       -Q "PARTUUID == \"${verity_data_uuid}\"")" || true
     if [ -z "${image_source}" ]; then
-      image_source="$(lsblk -rn "${install_from}" \
+      image_source="$(lsblk -rn -o 'path' "${install_from}" \
         -Q "PARTTYPE == \"$(systemd-id128 show --value --uuid "${image_type}")\"")" || true
     fi
     [ -e "${image_source}" ] || continue
-    verity_source="$(lsblk -rn "${install_from}" \
+    verity_source="$(lsblk -rn -o 'path' "${install_from}" \
       -Q "PARTUUID == \"${verity_hash_uuid}\"")" || true
     if [ -z "${verity_source}" ]; then
-      verity_source="$(lsblk -rn "${install_from}" \
+      verity_source="$(lsblk -rn -o 'path' "${install_from}" \
         -Q "PARTTYPE == \"$(systemd-id128 show --value --uuid "${image_type}-verity")\"")" || true
     fi
-    verity_sig_source="$(lsblk -rn "${install_from}" \
+    verity_sig_source="$(lsblk -rn -o 'path' "${install_from}" \
         -Q "PARTTYPE == \"$(systemd-id128 show --value --uuid "${image_type}-verity-sig")\"")" || true
   else
     # Use image files from the given directory
@@ -130,26 +129,29 @@ for image_type in root usr; do
         lvremove -y -v "${target_vg}/${lv_name}-verity-sig"
       fi
       lvcreate -v -y \
-        --addtag "@image:${image_id}" \
-        --addtag "@type:${image_type}-verity-sig" \
-        --addtag "@verity:sig" \
-        --addtag "@version:${image_version}" \
-        --addtag "@roothash:${verity_roothash}" \
-        -L "1M" \
+        -L "4M" \
         -n "${lv_name}-verity-sig" \
         "${target_vg}"
       dev="/dev/${target_vg}/${lv_name}-verity-sig"
       # conv=sync to fill the LV with null bytes after the end of the signature file.
       udevadm lock -d "${dev}" \
         dd status=progress \
-          bs=1M \
+          bs=4M \
           count=1 \
           conv=fsync,sync \
           oflag=direct \
           if="${verity_sig_source}" \
           of="${dev}"
-      # change permission to readonly
-      lvchange -p r "${target_vg}/${lv_name}-verity-sig" || true
+      # change permission to readonly and add image tags
+      lvchange \
+        --addtag="@image:${image_id}" \
+        --addtag="@type:${image_type}-verity-sig" \
+        --addtag="@verity:sig" \
+        --addtag="@version:${image_version}" \
+        --addtag="@roothash:${verity_roothash}" \
+        --setautoactivation y \
+        --permission=r \
+        "${target_vg}/${lv_name}-verity-sig" || true
     fi
 
     printf 'Creating verity volume %s\n' "${lv_name}-verity"
@@ -157,11 +159,6 @@ for image_type in root usr; do
       lvremove -y -v "${target_vg}/${lv_name}-verity"
     fi
     lvcreate -v -y \
-      --addtag "@image:${image_id}" \
-      --addtag "@type:${image_type}-verity" \
-      --addtag "@verity:hash" \
-      --addtag "@version:${image_version}" \
-      ${verity_roothash:+--addtag "@roothash:${verity_roothash}"} \
       -L "${verity_size_b}B" \
       -n "${lv_name}-verity" \
       "${target_vg}"
@@ -174,8 +171,17 @@ for image_type in root usr; do
         oflag=direct \
         if="${verity_source}" \
         of="${dev}"
-    # change permission to readonly
-    lvchange -p r "${target_vg}/${lv_name}-verity" || true
+      # change permission to readonly and add image tags
+      lvchange \
+        --addtag="@image:${image_id}" \
+        --addtag="@type:${image_type}-verity" \
+        --addtag="@verity:hash" \
+        --addtag="@version:${image_version}" \
+        --addtag="@roothash:${verity_roothash}" \
+        ${verity_roothash:+--addtag "@roothash:${verity_roothash}"} \
+        --setautoactivation y \
+        --permission=r \
+        "${target_vg}/${lv_name}-verity" || true
   fi
 
   printf 'Installing %s to LV %s...\n' "${image_source}" "${target_vg}/${lv_name}"
@@ -195,7 +201,16 @@ for image_type in root usr; do
       oflag=direct \
       if="${image_source}" \
       of="/dev/${target_vg}/${lv_name}"
-  lvchange -p r "${target_vg}/${lv_name}" || true
+  # change permission to readonly and add image tags
+  lvchange \
+    --addtag "@image:${image_id}" \
+    --addtag "@type:${image_type}" \
+    ${verity_source:+--addtag "@verity:data"} \
+    --addtag "@version:${image_version}" \
+    ${verity_roothash:+--addtag "@roothash:${verity_roothash}"} \
+    --setautoactivation y \
+    --permission=r \
+    "${target_vg}/${lv_name}" || true
 done
 
 printf 'VG %s is ready\n' "${target_vg}"
