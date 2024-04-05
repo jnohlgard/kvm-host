@@ -1,0 +1,54 @@
+#!/usr/bin/sh
+set -euf
+incdir=/usr/lib
+. "${incdir}/lv-verity.inc.sh"
+
+usage() {
+  printf 'Usage: %s <output-dir> [early-dir] [late-dir]\n' "${0##*/}"
+}
+
+if [ $# -lt 1 ] || [ $# -gt 3 ]; then
+  >&2 usage
+  exit 2
+fi
+
+if [ $# -gt 0 ] && [ "$1" = '--help' ]; then
+  usage
+  exit 0
+fi
+
+outdir="$1";shift
+
+for image_type in root usr; do
+  verity_roothash="$(kernel_cmdline_arg "${image_type}hash")"
+  [ -n "${verity_roothash}" ] || continue
+  datadev="/dev/os-${image_type}-data"
+  hashdev="/dev/os-${image_type}-hash"
+  datadev_escaped="$(systemd-escape -p "${datadev}")"
+  hashdev_escaped="$(systemd-escape -p "${hashdev}")"
+  cat > "${outdir}/systemd-veritysetup@${image_type}.service" <<-EOF
+	[Unit]
+	Description=Integrity Protection Setup for %I
+	Documentation=man:systemd-veritysetup@.service(8)
+	DefaultDependencies=no
+	IgnoreOnIsolate=yes
+	After=veritysetup-pre.target systemd-udevd-kernel.socket
+	Before=blockdev@dev-mapper-%i.target
+	Wants=blockdev@dev-mapper-%i.target
+	Conflicts=umount.target
+	Before=umount.target
+	Before=veritysetup.target
+	BindsTo=${datadev_escaped}.device
+	After=${datadev_escaped}.device
+	BindsTo=${hashdev_escaped}.device
+	After=${hashdev_escaped}.device
+
+	[Service]
+	Type=oneshot
+	RemainAfterExit=yes
+	ExecStart=/usr/lib/systemd/systemd-veritysetup attach '%I' '${datadev}' '${hashdev}' '${verity_roothash}' 'auto,x-initrd.attach'
+	ExecStop=/usr/lib/systemd/systemd-veritysetup detach '%I'
+	EOF
+  mkdir -p "${outdir}/veritysetup.target.requires"
+  ln -sfv "../systemd-veritysetup@${image_type}.service" "${outdir}/veritysetup.target.requires/"
+done

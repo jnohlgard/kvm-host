@@ -1,5 +1,5 @@
 ACTION=="remove", GOTO="luks_tpm2_end"
 
-SUBSYSTEM=="block", ENV{ID_FS_TYPE}=="crypto_LUKS", ENV{ID_FS_UUID}=="?*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="luks-unlock@$env{ID_FS_UUID_SYSTEMD}.target"
+SUBSYSTEM=="block", ENV{ID_FS_TYPE}=="crypto_LUKS", ENV{ID_FS_UUID}=="?*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="luks-unlock-by-uuid@$env{ID_FS_UUID_SYSTEMD}.target"
 
 LABEL="luks_tpm2_end"

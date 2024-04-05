@@ -1,0 +1,27 @@
+#!/usr/bin/sh
+set -euf
+incdir=/usr/lib
+. "${incdir}/lv-verity.inc.sh"
+
+if [ $# -ne 1 ]; then
+  >&2 printf 'Usage: %s <lv_device>\n' "${0##*/}"
+  exit 2
+fi
+dev="$1"; shift
+
+lv_tags "${dev}" | sed -n \
+  -e 's/^roothash:\([0-9a-f]*\)$/ID_LV_VERITY_ROOTHASH=\1/p' \
+  -e 's/^verity:\([a-z]*\)$/ID_LV_VERITY_COMPONENT=\1/p' \
+  -e 's/^version:\([A-Za-z0-9._-]*\)$/ID_LV_IMAGE_VERSION=\1/p' \
+  -e 's/^type:\([a-z0-9._-]*\)$/ID_LV_IMAGE_TYPE=\1/p' \
+  -e 's/^image:\([A-Za-z0-9._-]*\)$/ID_LV_IMAGE_NAME=\1/p'
+
+kernel_roothash="$(kernel_cmdline_arg roothash)"
+kernel_usrhash="$(kernel_cmdline_arg usrhash)"
+
+roothash="$(lv_tags "${dev}" | sed -n -e 's/^roothash:\([a-f0-9]*\)$/\1/p' | head -n 1)"
+if [ "${roothash}" = "${kernel_roothash}" ]; then
+  printf 'ID_LV_VERITY_USAGE=root\n'
+elif [ "${roothash}" = "${kernel_usrhash}" ]; then
+  printf 'ID_LV_VERITY_USAGE=root\n'
+fi

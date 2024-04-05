@@ -1,0 +1,17 @@
+ACTION=="remove", GOTO="lv_tags_end"
+SUBSYSTEM!="block", GOTO="lv_tags_end"
+ENV{DM_UDEV_DISABLE_OTHER_RULES_FLAG}=="1", GOTO="lv_tags_end"
+ENV{DM_NOSCAN}=="1", GOTO="lv_tags_end"
+
+ENV{DM_VG_NAME}=="?*", ENV{DM_LV_NAME}=="?*", IMPORT{program}="lv_tags $env{DM_VG_NAME}/$env{DM_LV_NAME}"
+
+ENV{ID_LV_IMAGE_NAME}=="?*", ENV{ID_LV_IMAGE_VERSION}=="?*", ENV{ID_LV_IMAGE_TYPE}=="?*", SYMLINK+="images/$env{ID_LV_IMAGE_NAME}_$env{ID_LV_IMAGE_VERSION}.$env{ID_LV_IMAGE_TYPE}"
+
+ENV{ID_LV_VERITY_ROOTHASH}=="", GOTO="lv_verity_end"
+
+ENV{ID_LV_VERITY_USAGE}=="?*", ENV{ID_LV_VERITY_COMPONENT}=="?*", SYMLINK+="os-$env{ID_LV_VERITY_USAGE}-$env{ID_LV_VERITY_COMPONENT}"
+ENV{ID_LV_VERITY_COMPONENT}=="?*", SYMLINK+="disk/by-roothash/$env{ID_LV_VERITY_ROOTHASH}-$env{ID_LV_VERITY_COMPONENT}"
+
+LABEL="lv_verity_end"
+
+LABEL="lv_tags_end"

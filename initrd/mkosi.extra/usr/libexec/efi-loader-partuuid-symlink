@@ -1,0 +1,50 @@
+#!/usr/bin/sh
+set -euf
+
+efivars='/sys/firmware/efi/efivars/'
+systemd_efi_uuid='4a67b082-0a4c-41cf-b6c7-440b29bb8c4f'
+efivar_name='LoaderDevicePartUUID'
+efivar="${efivar_name}-${systemd_efi_uuid}"
+symlink_base="/dev/efi-boot"
+
+die() {
+  if [ $# -gt 0 ]; then
+    >&2 printf "$@"
+  fi
+  exit 1
+}
+
+usage() {
+  printf 'Usage: %s [symlink_base]\n' "${0##*/}"
+  printf '%s\n' '' \
+    "Create symlinks to the partition mentioned in the EFI variable ${efivar} and its parent disk."
+    "symlink_base is the destination symlink name, default '${symlink_base}'."
+    'Two links will be created, {symlink_base}-esp and {symlink_base}-disk.'
+}
+
+if [ $# -gt 0 ] && [ "$1" = '--help' ] || [ $# -gt 1 ]; then
+  usage
+  exit 2
+fi
+
+if [ $# -gt 0 ]; then
+  symlink_base="$1"; shift
+fi
+
+loader_device_partuuid_efivar="${efivars}/${efivar}"
+
+loader_device_partuuid="$( <"${loader_device_partuuid_efivar}" cut -b 5- | tr -d '\0' | tr '[:upper:]' '[:lower:]')" || \
+  die 'Unable to read EFI loader partition UUID from efivar %s\n' \
+    "${loader_device_partuuid_efivar}"
+
+if [ -n "${loader_device_partuuid}" ]; then
+  ln -sfv "/dev/disk/by-partuuid/${loader_device_partuuid}" "${symlink_base}-esp"
+
+  loader_disk="$(lsblk -o 'PATH,PARTUUID' -J -T | \
+    jq -r \
+    ".blockdevices[] | recurse(.children[]?) | select( .children[]?.partuuid == \"${loader_device_partuuid}\" ) | .path"
+  )"
+  if [ -n "${loader_disk}" ]; then
+    ln -sfv "${loader_disk}" "${symlink_base}-disk"
+  fi
+fi

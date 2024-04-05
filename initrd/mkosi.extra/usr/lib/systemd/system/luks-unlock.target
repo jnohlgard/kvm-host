@@ -1,0 +1,5 @@
+[Unit]
+Description=Automatic unlock of LUKS devices
+Documentation=man:cryptsetup(8) man:systemd-cryptsetup(8)
+Before=cryptsetup.target
+After=cryptsetup-pre.target
