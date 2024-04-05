@@ -1,0 +1,18 @@
+#!/usr/bin/sh
+set -euf
+
+if [ $# -gt 0 ] && [ "$1" != 'final' ]; then
+  exit 0
+fi
+
+# Remove generic systemd factory configs before substituting our own
+rm -fv \
+  /usr/share/factory/etc/issue \
+  /usr/share/factory/etc/locale.conf \
+  /usr/share/factory/etc/nsswitch.conf \
+  /usr/share/factory/etc/pam.d/other \
+  /usr/share/factory/etc/pam.d/system-auth \
+  /usr/share/factory/etc/vconsole.conf
+
+rmdir -pv --ignore-fail-on-non-empty \
+  /usr/share/factory/etc/pam.d

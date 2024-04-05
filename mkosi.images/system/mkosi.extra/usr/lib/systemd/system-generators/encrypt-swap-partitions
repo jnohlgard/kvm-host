@@ -8,9 +8,10 @@ fi
 
 outdir="$1";shift
 
-parttype_swap='0657fd6d-a4ab-43c4-84e5-0933c84b4f4f'
+
 # --value was added in systemd-255
-#parttype_swap="$(systemd-id128 --value --uuid show swap)"
+parttype_swap="$(systemd-id128 --value --uuid show swap)" || \
+  parttype_swap='0657fd6d-a4ab-43c4-84e5-0933c84b4f4f'
 
 test -d "${outdir}"
 

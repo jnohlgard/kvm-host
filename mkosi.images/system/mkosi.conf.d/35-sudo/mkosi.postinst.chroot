@@ -1,0 +1,8 @@
+#!/usr/bin/sh
+set -euf
+
+# Authenticate sudo access via ssh-agent instead of passwords.
+sed -E -i \
+  -e '/^[ \t]*auth.*pam_ssh_agent_auth\.so/d' \
+  -e '/^#%PAM-1\.0/a auth       sufficient   pam_ssh_agent_auth.so file=%h/.ssh/authorized_keys' \
+  '/etc/pam.d/sudo'

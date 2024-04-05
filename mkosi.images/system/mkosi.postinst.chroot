@@ -1,0 +1,13 @@
+#!/usr/bin/sh
+set -eu
+
+mkdir -p /etc/kernel
+[ -e /etc/kernel/tries ] || printf '%s\n' 3 > /etc/kernel/tries
+
+find /boot/
+find /efi/
+
+if [ -d /boot/efi/EFI ]; then
+  rmdir -pv --ignore-fail-on-non-empty \
+    /boot/efi/EFI/*/
+fi
