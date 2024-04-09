@@ -14,5 +14,10 @@ rm -fv \
   /usr/share/factory/etc/pam.d/system-auth \
   /usr/share/factory/etc/vconsole.conf
 
-rmdir -pv --ignore-fail-on-non-empty \
+rmdir -v --ignore-fail-on-non-empty \
   /usr/share/factory/etc/pam.d
+
+rmdir -v /home /srv
+ln -sv var/home var/srv /
+rm -rvf /root
+ln -svfT var/roothome /root
