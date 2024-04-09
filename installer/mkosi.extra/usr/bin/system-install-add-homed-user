@@ -1,0 +1,35 @@
+#!/usr/bin/sh
+set -euf
+incdir=/usr/lib
+. "${incdir}/lv-verity.inc.sh"
+
+usage() {
+  printf 'Usage: %s <username> <rootdir>\n' "${0##*/}"
+  printf '%s\n' \
+    '' \
+    'Create a foreign systemd-homed user in the given system rootdir.' \
+    'A public key will be added to <rootdir>/var/lib/systemd/home for verifying the signature on the identity file.' \
+    'A signed JSON user identity object will be written to <rootdir>/home/<username>.homedir/.identity'
+}
+
+if [ $# -ne 2 ]; then
+  usage
+  exit 2
+fi
+
+user="$1";shift
+rootdir="$1";shift
+homedir="${rootdir}/home/${user}.homedir"
+pub="${rootdir}/var/lib/systemd/home/${user}.public"
+
+if [ -e "${homedir}" ]; then
+  die 'systemd-homed user directory %s already exists\n' "${homedir}"
+fi
+if [ -e "${pub}" ]; then
+  die 'public key %s already exists in root %s\n' "${pub}"
+fi
+
+umask 077
+mkdir -pv "${homedir}" "${pub%/*}"
+useridentity "${user}" "${homedir}/.identity"
+jq -r '.signature[]?.key' "${homedir}/.identity" > "${pub}"
