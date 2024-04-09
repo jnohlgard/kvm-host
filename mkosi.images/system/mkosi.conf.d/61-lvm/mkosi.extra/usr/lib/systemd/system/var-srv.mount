@@ -1,0 +1,19 @@
+[Unit]
+Description=%f system persistent state
+DefaultDependencies=no
+Before=initrd-fs.target
+Requires=systemd-fsck@dev-vgsys-%j.service
+After=systemd-fsck@dev-vgsys-%j.service
+After=blockdev@dev-vgsys-%j.target
+BindsTo=dev-vgsys-%j.device
+Wants=dev-vgsys-%j.device
+After=dev-vgsys-%j.device
+OnFailure=os-installer.target
+OnFailureJobMode=isolate
+
+[Mount]
+What=/dev/vgsys/%J
+Options=nosuid,nodev
+
+[Install]
+WantedBy=local-fs.target
