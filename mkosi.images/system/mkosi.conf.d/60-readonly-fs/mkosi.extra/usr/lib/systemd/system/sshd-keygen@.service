@@ -9,7 +9,7 @@ EnvironmentFile=-/etc/sysconfig/sshd
 StateDirectory=sshd
 StateDirectoryMode=0755
 WorkingDirectory=%S/sshd
-ExecStart=/usr/bin/ssh-keygen -t "%I" -N '' -f "ssh_host_%I_key" -C "sshd@%H"
+ExecStart=/usr/bin/ssh-keygen -t "%I" -N '' -f "%S/sshd/ssh_host_%I_key" -C "sshd@%H"
 
 [Install]
 WantedBy=sshd-keygen.target
