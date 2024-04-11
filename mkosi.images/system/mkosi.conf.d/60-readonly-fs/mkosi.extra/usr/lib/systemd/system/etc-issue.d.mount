@@ -1,9 +1,0 @@
-[Unit]
-Description=Writable %f
-Wants=tmpfiles-create@%N.service
-Before=tmpfiles-create@%N.service
-
-[Mount]
-What=tmpfs
-Type=tmpfs
-Options=size=1m,mode=0755,nosuid,nodev,noexec

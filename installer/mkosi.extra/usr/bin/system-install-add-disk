@@ -44,7 +44,7 @@ fi
 export LUKSFORMAT_MKFS='pvcreate --metadatasize=8m --dataalignment=16m --verbose --yes --devicesfile= '
 export LUKSFORMAT_TPM2_DEVICE="${LUKSFORMAT_TPM2_DEVICE:-auto}"
 if [ -z "${LUKSFORMAT_FIDO2_DEVICE+set}" ]; then
-  if command -v >/dev/null 2>&1 && [ "$(systemd-detect-virt)" != "none" ]; then
+  if systemd-detect-virt -q; then
     printf 'Running in virtualization, skipping FIDO2 enrollment\n'
     printf 'If this is not desired, override this autodetection by setting LUKSFORMAT_FIDO2_DEVICE=auto\n'
     export LUKSFORMAT_FIDO2_DEVICE=''

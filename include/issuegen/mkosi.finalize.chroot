@@ -1,0 +1,8 @@
+#!/usr/bin/sh
+set -euf
+
+# Eliminate /etc/issue from the image
+rm -vf /etc/issue /etc/issue.net
+rm -rvf /etc/issue.d /etc/issue.net.d
+
+sed -i -e '/^..*[ \t][ \t]*\/etc\/issue/d' /usr/lib/tmpfiles.d/etc.conf

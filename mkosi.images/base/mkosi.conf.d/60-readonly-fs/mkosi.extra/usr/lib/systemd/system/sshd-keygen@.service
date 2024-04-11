@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenSSH %I Server Key Generation
+Documentation=man:ssh-keygen(1) man:sshd_config(5)
+ConditionFileNotEmpty=|!%S/sshd/ssh_host_%I_key
+Before=sshd-keygen.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/sysconfig/sshd
+StateDirectory=sshd
+StateDirectoryMode=0755
+WorkingDirectory=%S/sshd
+ExecStart=/usr/bin/ssh-keygen -t "%I" -N '' -f "%S/sshd/ssh_host_%I_key" -C "sshd@%H"
+
+[Install]
+WantedBy=sshd-keygen.target

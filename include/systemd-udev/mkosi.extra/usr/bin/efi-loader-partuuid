@@ -1,0 +1,48 @@
+#!/usr/bin/sh
+set -euf
+
+efivars='/sys/firmware/efi/efivars/'
+systemd_efi_uuid='4a67b082-0a4c-41cf-b6c7-440b29bb8c4f'
+efivar_name='LoaderDevicePartUUID'
+efivar="${efivar_name}-${systemd_efi_uuid}"
+loader_device_partuuid_efivar="${efivars}/${efivar}"
+
+usage() {
+  printf 'Usage: %s [command] [args]\n' "${0##*/}"
+  printf '\nCommands:\n'
+  printf '%s\n' '' \
+    '[show]' \
+    '  Print the PARTUUID of the ESP based on EFI firmware variables.' \
+    'check <device>' \
+    '  Inspect a GPT disk to check if there is a partition with the same UUID as the DeviceLoaderPartUUID firmware variable.' \
+    ''
+}
+
+device_partuuid() {
+  cut -b 5- "${loader_device_partuuid_efivar}" \
+    | tr -cd '[A-Za-z0-9-]' \
+    | tr '[:upper:]' '[:lower:]' 
+}
+
+if [ $# -eq 0 ]; then
+  set -- 'show'
+fi
+
+cmd="$1"; shift
+
+case "${cmd}" in
+  show)
+    device_partuuid   
+    ;;
+  check)
+    if [ $# -ne 1 ]; then
+      usage
+      exit 2
+    fi
+    dev="$1";shift
+    [ -b "${dev}" ]
+    partx -r -g -o uuid "${dev}" | grep -qFx "$(device_partuuid)"
+    ;;
+esac
+usage
+exit 2

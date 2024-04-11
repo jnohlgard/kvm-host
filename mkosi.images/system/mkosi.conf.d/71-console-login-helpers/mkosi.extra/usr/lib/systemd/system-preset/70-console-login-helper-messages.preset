@@ -1,3 +1,0 @@
-# console-login-helper-messages - https://github.com/coreos/console-login-helper-messages
-enable console-login-helper-messages-gensnippet-os-release.service
-enable console-login-helper-messages-gensnippet-ssh-keys.service

@@ -1,5 +1,0 @@
-#!/usr/bin/sh
-set -euf
-
-semodule -v -i "${PACKAGEDIR}/selinux/homed.pp"
-authselect enable-feature with-systemd-homed

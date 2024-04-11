@@ -1,0 +1,28 @@
+[Unit]
+Description=Cryptography Setup for /dev/mapper/swap-%I
+Documentation=man:crypttab(5) man:systemd-cryptsetup-generator(8) man:systemd-cryptsetup@.service(8)
+DefaultDependencies=no
+Wants=cryptsetup-pre.target
+After=cryptsetup-pre.target systemd-udevd-kernel.socket
+After=systemd-random-seed.service
+Wants=blockdev@dev-mapper-swap\x2d%i.target
+Before=blockdev@dev-mapper-swap\x2d%i.target
+Before=systemd-mkswap@dev-mapper-swap\x2d%i.service
+Before=cryptsetup.target
+Before=swap.target
+IgnoreOnIsolate=yes
+Conflicts=umount.target
+Before=umount.target
+BindsTo=dev-disk-by\x2d%j-%i.device
+After=dev-disk-by\x2d%j-%i.device
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutSec=infinity
+OOMScoreAdjust=500
+Environment="CRYPTSETUP_OPTIONS=swap,discard"
+ExecStartPre=sh -eu -c "lsblk -rnd -o PARTTYPE '/dev/disk/by-%J/%I' | grep -Fxq '0657fd6d-a4ab-43c4-84e5-0933c84b4f4f'"
+ExecStart=/usr/lib/systemd/systemd-cryptsetup attach 'swap-%I' '/dev/disk/by-%J/%I' '/dev/urandom' "${CRYPTSETUP_OPTIONS}"
+ExecStart=/usr/lib/systemd/systemd-makefs swap '/dev/mapper/swap-%I' 
+ExecStop=/usr/lib/systemd/systemd-cryptsetup detach 'swap-%I'

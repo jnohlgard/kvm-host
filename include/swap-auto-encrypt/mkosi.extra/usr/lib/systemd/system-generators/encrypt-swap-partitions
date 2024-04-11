@@ -1,0 +1,38 @@
+#!/usr/bin/sh
+set -eu
+
+if [ $# -lt 1 ]; then
+  printf 'Usage: %s <output-dir> [early-dir] [late-dir]\n' "${0##*/}"
+  exit 2
+fi
+
+outdir="$1";shift
+
+
+# --value was added in systemd-255
+# systemd-id128 show swap -u | grep -e '^swap ' | cut -d ' ' -f 2
+parttype_swap="$(systemd-id128 --value --uuid show swap 2>/dev/null)" || \
+  parttype_swap='0657fd6d-a4ab-43c4-84e5-0933c84b4f4f'
+
+test -d "${outdir}/"
+
+for partuuid in $(lsblk -o PARTTYPE,PARTUUID -r -n | \
+  grep -e "^${parttype_swap} " | \
+  cut -d' ' -f2)
+do
+  luks_device="/dev/mapper/swap-${partuuid}"
+  luks_device_escaped="$(systemd-escape -p "${luks_device}")"
+  cat > "${outdir}/${luks_device_escaped}.swap" <<-'EOF'
+	[Unit]
+	Description=Encrypted swap on GPT partition %f
+	After=blockdev@%N.target
+	Requires=systemd-cryptsetup-swap-by-partuuid@%j.target
+	After=systemd-cryptsetup-swap-by-partuuid@%j.target
+
+	[Swap]
+	What=%f
+	Options=discard,pri=100
+	EOF
+  mkdir -p "${outdir}/swap.target.wants"
+  ln -s "../${luks_device_escaped}.swap" "${outdir}/swap.target.wants/"
+done

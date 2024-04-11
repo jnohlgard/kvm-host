@@ -1,0 +1,6 @@
+#!/usr/bin/sh
+set -euf
+
+if [ -d '/var/lib/alternatives' ]; then
+  mv -v --no-target-directory /var/lib/alternatives /usr/lib/alternatives
+fi

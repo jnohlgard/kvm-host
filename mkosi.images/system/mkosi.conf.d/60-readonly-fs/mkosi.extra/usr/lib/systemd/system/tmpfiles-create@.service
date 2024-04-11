@@ -1,9 +1,0 @@
-[Unit]
-DefaultDependencies=no
-RequiresMountsFor=%f
-Before=shutdown.target
-Conflicts=shutdown.target
-
-[Service]
-Type=oneshot
-ExecStart=systemd-tmpfiles --create --prefix='%f'

@@ -1,0 +1,2 @@
+# Trigger issue.d updates when network interfaces are added or removed
+SUBSYSTEM=="net", KERNEL!="lo", TAG=="systemd", ENV{SYSTEMD_WANTS}+="issuegen-netif@$name.service"

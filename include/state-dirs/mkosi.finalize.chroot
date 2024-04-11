@@ -1,0 +1,5 @@
+#!/usr/bin/sh
+set -euf
+
+printf 'tmpfiles.d for installed /var/lib tree:\n\n'
+find /var/lib/ -type l -printf '%y %p - - - - %l\n' -or -printf '%y %p %#m %u %g - -\n'

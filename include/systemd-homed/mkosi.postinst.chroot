@@ -1,0 +1,13 @@
+#!/usr/bin/sh
+set -euf
+
+if [ -e '/etc/selinux/config' ]; then
+  . '/etc/selinux/config'
+  if [ "${SELINUX:-disabled}" != 'disabled' ]; then
+    semodule -v -i "${PACKAGEDIR}/selinux/homed.pp"
+  fi
+fi
+
+if command -v authselect >/dev/null 2>&1; then
+  authselect enable-feature with-systemd-homed
+fi

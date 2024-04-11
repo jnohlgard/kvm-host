@@ -1,0 +1,2 @@
+enable issuegen-ssh-host-key.service
+enable issuegen-netif-online.service

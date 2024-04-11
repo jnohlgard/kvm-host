@@ -92,3 +92,9 @@ systemd-tmpfiles --create --boot \
 prov=prov
 printf 'Creating a temporary rovisioning user account "%s"\n' "${prov}"
 system-install-add-homed-user "${prov}" /sysroot
+
+printf '\nInstallation complete!\n'
+
+if [ -t 0 ] && [ -e "/etc/initrd-release" ]; then
+  printf 'Press ctrl+d to continue booting\n'
+fi

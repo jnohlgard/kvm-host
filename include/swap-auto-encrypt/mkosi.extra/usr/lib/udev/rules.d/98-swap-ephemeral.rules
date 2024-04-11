@@ -1,0 +1,11 @@
+ACTION=="remove", GOTO="swap_ephemeral_end"
+SUBSYSTEM!="block", GOTO="swap_ephemeral_end"
+TEST!="/etc/initrd-release", GOTO="swap_ephemeral_end"
+
+# swap partitions use type 0657fd6d-a4ab-43c4-84e5-0933c84b4f4f
+ENV{ID_PART_ENTRY_TYPE}=="0657fd6d-a4ab-43c4-84e5-0933c84b4f4f", ENV{ID_PART_ENTRY_UUID}=="?*", ENV{SYSTEMD_WANTS}+="systemd-cryptsetup-swap-by-partuuid@$env{ID_PART_ENTRY_UUID_SYSTEMD}.service"
+
+# Automatically swapon encrypted swap disks
+#ENV{ID_FS_TYPE}=="swap", ENV{DM_UUID}=="CRYPT-PLAIN-swap-*", ENV{SYSTEMD_WANTS}+="dev-mapper-swap\\x2d$env{ID_PART_ENTRY_UUID_SYSTEMD}.swap"
+
+LABEL="swap_ephemeral_end"

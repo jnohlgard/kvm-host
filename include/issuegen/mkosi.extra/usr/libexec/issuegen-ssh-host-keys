@@ -1,0 +1,31 @@
+#!/usr/bin/sh
+set -euf
+
+outdir="${RUNTIME_DIRECTORY:-${XDG_RUNTIME_DIR:-/run}}/issue.d"
+search_default="${CONFIGURATION_DIRECTORY:-/etc}/ssh"
+for arg in "$@"; do [ "${arg}" = "--help" ] || continue
+  printf 'Usage: %s [output_dir] [search paths...]\n' "${0##*/}"
+  printf '\nExample: %s /run/issue.d /etc/ssh/\n' "${0##*/}"
+  printf '\nDefaults:\n'
+  printf '  output_dir=%s\n  search_path=%s\n' \
+    "${outdir}" "${search_default}"
+  exit 0
+done
+
+if [ $# -gt 0 ]; then
+  outdir="$1"; shift
+fi
+if [ $# -eq 0 ]; then
+  set -- "${search_default}"
+fi
+
+for f in "$@"; do
+  [ -e "$f" ] || continue
+  find "$f" \
+    -maxdepth 2 \
+    -name 'ssh_host_*_key' \
+    -type f \
+    -readable \
+    -exec ssh-keygen -l -f '{}' ';' \
+    | awk -- '{ printf "SSH host key: %s %s\n",$2,$NF }'
+done > "${outdir}/21-issuegen-sshd-keys.issue"

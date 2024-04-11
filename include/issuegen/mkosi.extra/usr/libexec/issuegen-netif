@@ -1,0 +1,64 @@
+#!/usr/bin/sh
+set -euf
+
+outdir="${RUNTIME_DIRECTORY:-${XDG_RUNTIME_DIR:-/run}}/issue.d"
+for arg in "$@"; do [ "${arg}" = "--help" ] || continue
+  printf 'Usage: %s [output_dir] [--up] [--nomaster] [ifnames ...]\n' "${0##*/}"
+  printf '\nExample: %s /run/issue.d eth0 eth1 wlan0\n' "${0##*/}"
+  printf '\nDefault:\n'
+  printf '  output_dir=%s\n' \
+    "${outdir}"
+  exit 0
+done
+
+ip_links() {
+  ip -j link show "$@" | jq -r '.[]?.ifname? | select(.)'
+}
+
+if [ $# -gt 0 ] && [ -e "$1" ]; then
+  outdir="$1"; shift
+fi
+
+# Filters:
+# --up - only list 'up' interfaces
+# --nomaster - only list non-enslaved interfaces
+
+# Skip loopback interfaces by default
+jq_filters='| select(.flags | contains(["LOOPBACK"]) | not)'
+all_links=1
+for arg in "$@"; do
+  case "${arg}" in
+    '--up')
+      jq_filters="${jq_filters}"' | select(.flags | contains(["UP"]))';;
+    '--nomaster')
+      jq_filters="${jq_filters}"' | select(.master == null)';;
+    '--'*)
+      >&2 printf 'Unknown flag %s\n' "${arg}"
+      exit 2
+      ;;
+    *)
+      all_links=0
+      ;;
+  esac
+done
+
+# Fall back to a list of all non-enslaved interfaces
+if [ "${all_links}" -eq 1 ]; then
+  set -- "$@" $(ip_links)
+fi
+
+for n in "$@"; do
+  case "${n}" in
+    lo|veth*|podman*|--*)
+      continue
+      ;;
+  esac
+  out="${outdir}/22-issuegen-netif-${n}.issue"
+  ip -j link show dev "$n" \
+    | jq -r \
+      '.[] '"${jq_filters}"'| .label = ([.ifname, (.altnames? | join(", ")? | " (\(.))")] | add) | "\(.label): \\4{\(.ifname)} \\6{\(.ifname)}"' \
+    | tee "${out}" \
+    | grep -q -s . \
+    && printf 'Wrote %s\n' "${out}" \
+    || rm -fv "${out}"
+done

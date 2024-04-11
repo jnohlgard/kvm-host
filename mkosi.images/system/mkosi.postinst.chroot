@@ -4,13 +4,9 @@ set -eu
 mkdir -p /etc/kernel
 [ -e /etc/kernel/tries ] || printf '%s\n' 3 > /etc/kernel/tries
 
-# Remove empty directories in /boot
 if [ -d /boot/efi/EFI ]; then
+  printf 'Removing empty directories in /boot/efi\n'
   rmdir -v --ignore-fail-on-non-empty \
     /boot/efi/EFI/*/ \
     /boot/efi/EFI
-fi
-
-if [ -d '/var/lib/alternatives' ]; then
-  mv -v --no-target-directory /var/lib/alternatives /usr/lib/alternatives
 fi

@@ -1,0 +1,18 @@
+#!/usr/bin/sh
+set -eu
+
+. /etc/selinux/config
+set +x
+printf 'Moving /var/lib/selinux to /etc/selinux\n'
+set -x
+sed -i -e '/^store-root=/d; $a store-root=/etc/selinux' '/etc/selinux/semanage.conf'
+for s in "/var/lib/selinux/"*; do
+  b="${s#/var/lib/}"
+  if [ -d "/etc/${b}" ]; then
+    mv -v "${s}/"* "/etc/${b}/"
+    ln -s "/etc/${b}/"* "${s}/"
+  else
+    mv -v "${s}" "/etc/${b}"
+    ln -s "/etc/${b}" "${s}"
+  fi
+done
