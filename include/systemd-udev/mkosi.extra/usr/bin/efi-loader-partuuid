@@ -18,7 +18,7 @@ usage() {
     ''
 }
 
-device_partuuid() {
+loader_partuuid() {
   cut -b 5- "${loader_device_partuuid_efivar}" \
     | tr -cd '[A-Za-z0-9-]' \
     | tr '[:upper:]' '[:lower:]' 
@@ -32,7 +32,8 @@ cmd="$1"; shift
 
 case "${cmd}" in
   show)
-    device_partuuid   
+    loader_partuuid
+    exit 0
     ;;
   check)
     if [ $# -ne 1 ]; then
@@ -41,7 +42,13 @@ case "${cmd}" in
     fi
     dev="$1";shift
     [ -b "${dev}" ]
-    partx -r -g -o uuid "${dev}" | grep -qFx "$(device_partuuid)"
+    dev_partuuid="$(/usr/sbin/blkid -p -o value -s 'PART_ENTRY_UUID' "${dev}")"
+    if [ -n "${dev_partuuid}" ]; then
+      [ "${dev_partuuid}" = "$(loader_partuuid)" ]
+    else
+      /usr/sbin/partx -r -g -o uuid "${dev}" | grep -qFx "$(loader_partuuid)"
+    fi
+    exit
     ;;
 esac
 usage

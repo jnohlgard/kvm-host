@@ -53,7 +53,7 @@ fi
 label_base="$1"; shift
 repart_d='/usr/lib/repart-sys.d'
 repart_pv_num=2
-esp_uuid="$(efi-loader-partuuid)" || true
+esp_uuid="$(efi-loader-partuuid)"
 esp_dev="/dev/disk/by-partuuid/${esp_uuid}"
 
 # Get the number from any existing PVs to find where to start counting the index.

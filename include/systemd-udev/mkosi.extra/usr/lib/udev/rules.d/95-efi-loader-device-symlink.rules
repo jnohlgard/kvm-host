@@ -2,7 +2,7 @@ ACTION=="remove", GOTO="stable_boot_end"
 SUBSYSTEM!="block", GOTO="stable_boot_end"
 
 # Check EFI firmware variable LoaderDevicePartUUID for the boot partition
-ENV{DEVTYPE}=="disk", ENV{ID_PART_TABLE_TYPE}=="gpt", PROGRAM=="/usr/bin/efi-loader-partuuid check $name", SYMLINK+="disk/by-id/efi-loader-disk"
-ENV{DEVTYPE}=="partition", ENV{ID_PART_ENTRY_SCHEME}=="gpt", ENV{ID_PART_ENTRY_TYPE}=="c12a7328-f81f-11d2-ba4b-00a0c93ec93b", PROGRAM=="/usr/bin/efi-loader-partuuid show", RESULT=="$env{ID_PART_ENTRY_UUID}", SYMLINK+="disk/by-id/efi-loader-esp"
+ENV{DEVTYPE}=="disk", ENV{ID_PART_TABLE_TYPE}=="gpt", PROGRAM=="/usr/bin/efi-loader-partuuid check $devnode", SYMLINK+="disk/by-id/efi-loader-disk"
+ENV{DEVTYPE}=="partition", ENV{ID_PART_ENTRY_SCHEME}=="gpt", ENV{ID_PART_ENTRY_TYPE}=="c12a7328-f81f-11d2-ba4b-00a0c93ec93b", PROGRAM=="/usr/bin/efi-loader-partuuid check $devnode", SYMLINK+="disk/by-id/efi-loader-esp"
 
 LABEL="stable_boot_end"
