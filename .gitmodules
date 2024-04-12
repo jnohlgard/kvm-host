@@ -1,3 +1,0 @@
-[submodule "include/systemd-homed/src/homed-selinux"]
-	path = include/systemd-homed/src/homed-selinux
-	url = https://github.com/richiedaze/homed-selinux.git
