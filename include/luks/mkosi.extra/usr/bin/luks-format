@@ -281,6 +281,12 @@ flock -x --verbose "$0" \
 # Shred the temporary key since we don't need it anymore
 shred -z -u "${keyfile_tmp}"
 
+if [ -t 0 ]; then
+  printf '=== Write down the above recovery key!!! ===\n'
+  printf 'Press [enter] when done\n'
+  read -r wait_for_user_input
+fi
+
 cryptsetup_close_retry "${tmp_mapping}"
 
 if [ -z "${LUKSFORMAT_DETACHED_HEADER}" ]; then
@@ -289,6 +295,7 @@ else
   printf 'Writing LUKS header to file %s\n' "${LUKSFORMAT_DETACHED_HEADER}"
 fi
 cryptsetup luksHeaderRestore \
+  --batch-mode \
   --header-backup-file="${header_tmp}" \
   ${LUKSFORMAT_DETACHED_HEADER:+--header="${LUKSFORMAT_DETACHED_HEADER}"} \
   "${blkdev}"
