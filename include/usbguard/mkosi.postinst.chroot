@@ -1,0 +1,11 @@
+#!/usr/bin/sh
+set -euf
+
+orig_path=/etc/usbguard/rules.d
+subs_path="/var/etc/${orig_path}"
+
+if [ -d "${orig_path}" ]; then
+  mkdir -pv "/usr/share/factory/${subs_path%/*}"
+  mv -v "${orig_path}" "/usr/share/factory/${subs_path%/*}"
+  ln -svnrf "${subs_path}" "${orig_path}"
+fi
