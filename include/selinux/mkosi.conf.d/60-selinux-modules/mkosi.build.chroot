@@ -1,0 +1,7 @@
+#!/usr/bin/sh
+set -euf
+set -x
+make -C selinux-modules -f /usr/share/selinux/devel/Makefile
+mkdir -p "${PACKAGEDIR}/selinux"
+cp -av selinux-modules/vsock.pp "${PACKAGEDIR}/selinux/"
+cp -av selinux-modules/systemd-boot.pp "${PACKAGEDIR}/selinux/"

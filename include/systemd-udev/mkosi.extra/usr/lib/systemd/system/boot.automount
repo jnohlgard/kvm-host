@@ -1,0 +1,11 @@
+[Unit]
+Description=Mount %f on-demand
+After=dev-disk-by\x2did-efi\x2dloader\x2desp.device
+BindsTo=dev-disk-by\x2did-efi\x2dloader\x2desp.device
+
+[Automount]
+DirectoryMode=0700
+TimeoutIdleSec=5min
+
+[Install]
+WantedBy=local-fs.target

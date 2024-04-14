@@ -1,0 +1,6 @@
+#!/usr/bin/sh
+set -euf
+
+if command -v authselect >/dev/null 2>&1; then
+  authselect enable-feature with-systemd-homed
+fi

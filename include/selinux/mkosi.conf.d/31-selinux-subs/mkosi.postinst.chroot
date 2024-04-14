@@ -1,16 +1,24 @@
 #!/usr/bin/sh
 set -euf
 
-set +x
-printf 'Adding SELinux policy substitution for /home -> /var/home\n'
-set -x
-semanage fcontext -a -e '/home' '/var/home'
+for d in srv home; do
+  set +x
+  printf 'Adding SELinux policy substitution for /%s -> /var/%s\n' "$d" "$d"
+  set -x
+  semanage fcontext -a -e "/$d" "/var/$d"
+done
+
 set +x
 printf 'Adding SELinux policy substitutions for /usr/share/factory/\n'
 set -x
 semanage fcontext -a -e '/etc' '/usr/share/factory/etc'
 semanage fcontext -a -e '/var' '/usr/share/factory/var'
+
+set +x
+printf 'Adding SELinux policy substitutions for various alternative directories\n'
+set -x
 semanage fcontext -a -e '/etc' '/usr/etc'
+semanage fcontext -a -e '/etc' '/var/etc'
 semanage fcontext -a -e '/opt' '/usr/opt/lib'
 
 # Debug print

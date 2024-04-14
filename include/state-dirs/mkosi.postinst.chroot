@@ -4,3 +4,6 @@ set -euf
 if [ -d '/var/lib/alternatives' ]; then
   mv -v --no-target-directory /var/lib/alternatives /usr/lib/alternatives
 fi
+printf 'Adding SELinux policy substitutions for /usr/lib/alternatives\n'
+set -x
+semanage fcontext -a -e '/var/lib/alternatives' '/usr/lib/alternatives'

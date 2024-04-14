@@ -1,0 +1,9 @@
+#!/usr/bin/sh
+set -euf
+
+set +x
+printf 'Adding SELinux file contexts for systemd boot files\n'
+set -x
+semanage fcontext -a -f f -t 'init_var_run_t' '/run/log/systemd/tpm2-measure\.log'
+semanage fcontext -a -f f -t 'init_var_lib_t' '/var/lib/systemd/random-seed'
+semanage fcontext -a -f f -t 'init_var_lib_t' '/boot/EFI/Linux/(.*)\.efi'

@@ -1,0 +1,19 @@
+policy_module(systemd-boot, 1.0)
+
+gen_require(`
+  type fs_t;
+')
+
+#============= boot_esp_t ==============
+type boot_esp_t;
+fs_noxattr_type(boot_esp_t)
+files_mountpoint(boot_esp_t)
+allow boot_esp_t fs_t:filesystem associate;
+
+#============= systemd_bless_boot_t ==============
+systemd_domain_template(systemd_bless_boot)
+
+systemd_read_efivarfs(systemd_bless_boot_t)
+dev_read_sysfs(systemd_bless_boot_t)
+storage_raw_read_fixed_disk_blk_device(systemd_bless_boot_t)
+rename_files_pattern(systemd_bless_boot_t, boot_esp_t, boot_esp_t)

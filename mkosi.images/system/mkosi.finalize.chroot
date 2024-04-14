@@ -1,5 +1,0 @@
-#!/usr/bin/sh
-set -euf
-
-printf 'Files in /var/:'
-find /var/lib -not -type d

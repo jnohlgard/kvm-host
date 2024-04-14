@@ -1,0 +1,16 @@
+[Unit]
+Description=ESP partition mount
+Requires=systemd-fsck@dev-disk-by\x2did-efi\x2dloader\x2desp.service
+After=systemd-fsck@dev-disk-by\x2did-efi\x2dloader\x2desp.service
+After=blockdev@dev-disk-by\x2did-efi\x2dloader\x2desp.target
+BindsTo=dev-disk-by\x2did-efi\x2dloader\x2desp.device
+Wants=dev-disk-by\x2did-efi\x2dloader\x2desp.device
+After=dev-disk-by\x2did-efi\x2dloader\x2desp.device
+
+[Mount]
+What=/dev/disk/by-id/efi-loader-esp
+Type=vfat
+Options=nosuid,nodev,noexec,fmask=0177,dmask=0077,dirsync,context="system_u:object_r:boot_esp_t:s0"
+
+[Install]
+WantedBy=local-fs.target

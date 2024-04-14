@@ -1,0 +1,11 @@
+# Allow systemd.socket units to create stream vsock sockets
+
+policy_module(vsock, 1.0)
+
+gen_require(`
+  type init_t;
+  class vsock_socket { listen accept };
+')
+
+#============= init_t ==============
+allow init_t self:vsock_socket { listen accept };

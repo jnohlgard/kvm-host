@@ -1,17 +1,10 @@
 #!/usr/bin/sh
 set -euf
-orig_path=/etc/firewalld
-subs_path=/var/lib/firewalld
+orig_path="/etc/firewalld"
+subs_path="/var/${orig_path##/}"
 
 if [ -d "${orig_path}" ]; then
   mkdir -pv "/usr/share/factory/${subs_path%/*}"
   mv -v "${orig_path}" "/usr/share/factory/${subs_path%/*}"
-  ln -svnf "${subs_path}" "${orig_path}"
-fi
-
-if [ -e '/etc/selinux/config' ]; then
-  . '/etc/selinux/config'
-  if [ "${SELINUX:-disabled}" != 'disabled' ]; then
-    semanage fcontext -a -e "${orig_path}" "${subs_path}"
-  fi
+  ln -svrnf "${subs_path}" "${orig_path}"
 fi

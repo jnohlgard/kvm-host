@@ -8,5 +8,10 @@ mkosi.rootpw
 mkosi.passphrase
 mkosi.local.conf
 mkosi.output/
+
+tmp/
 # Secureboot keys
 mkosi.images/bootdisk/mkosi.extra/efi/loader/keys/
+
+# SELinux binary policy package files
+*.pp

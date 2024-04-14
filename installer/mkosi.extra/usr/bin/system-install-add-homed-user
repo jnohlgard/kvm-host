@@ -32,4 +32,5 @@ fi
 umask 077
 mkdir -pv "${homedir}" "${pub%/*}"
 useridentity "${user}" "${homedir}/.identity"
+
 jq -r '.signature[]?.key' "${homedir}/.identity" > "${pub}"

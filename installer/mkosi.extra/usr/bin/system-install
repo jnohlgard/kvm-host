@@ -83,15 +83,26 @@ systemctl daemon-reload
 SYSTEMD_LOG_TARGET=console systemctl start initrd-root-device.target veritysetup.target
 printf 'Mounting /sysroot file systems\n'
 SYSTEMD_LOG_TARGET=console systemctl start initrd-root-fs.target initrd-fs.target
-systemd-tmpfiles --create --boot \
-  --prefix=/var/lib/systemd/home \
-  --prefix=/home \
-  --prefix=/var/home \
-  --root=/sysroot
 
 prov=prov
 printf 'Creating a temporary rovisioning user account "%s"\n' "${prov}"
 system-install-add-homed-user "${prov}" /sysroot
+
+if [ -e '/sysroot/etc/selinux/config' ]; then
+  mountpoints="$(findmnt -rRn -o target -T '/sysroot/var')"
+  if [ -n "${mountpoints}" ]; then
+    . /sysroot/etc/selinux/config
+    if [ "${SELINUX:-disabled}" != 'disabled' ]; then
+      printf 'Applying SELinux contexts to newly created /var files\n'
+      setfiles -mFv \
+        -r '/sysroot' \
+        -c "/sysroot/etc/selinux/${SELINUXTYPE}/policy/policy.33" \
+        "/sysroot/etc/selinux/${SELINUXTYPE}/contexts/files/file_contexts" \
+        ${mountpoints} \
+        || printf 'Warning: There were some errors during SELinux relabeling.\n'
+    fi
+  fi
+fi
 
 printf '\nInstallation complete!\n'
 
