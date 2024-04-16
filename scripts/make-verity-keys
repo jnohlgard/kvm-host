@@ -1,0 +1,51 @@
+#!/usr/bin/sh
+set -euf
+
+cn_base="System Verity"
+subj="/CN=${cn_base}${PROFILE+ ${PROFILE}} $(date +%Y)"
+
+die() {
+  if [ $# -gt 0 ]; then
+    >&2 printf "$@"
+  fi
+  exit 1
+}
+
+usage() {
+  printf 'Usage: %s <outdir>\n' "${0##*/}"
+}
+
+if [ $# -ne 1 ]; then
+  usage
+  exit 2
+fi
+
+outdir="$1";shift
+key="${outdir}/verity.key"
+csr="${outdir}/verity.csr"
+pem="${outdir}/verity.crt"
+
+printf 'Generating dm-verity keys into directory %s\n' "${outdir}"
+mkdir -pv "${outdir}"
+
+gen_verity_key() {
+  [ $# -eq 1 ] || die 'Usage: gen_verity_key <outfile>\n'
+  local keyout="$1";shift
+  printf 'Generating new key: %s\n' "${keyout}"
+  openssl genpkey -algorithm ec -pkeyopt 'ec_paramgen_curve:P-521' -out "${keyout}"
+}
+
+if [ ! -e "${key}" ]; then
+  rm -fv "${csr}"
+  gen_verity_key "${key}"
+else
+  printf 'Existing key: %s\n' "${key}"
+  openssl pkey -in "${key}" -noout -check
+fi
+if [ ! -e "${pem}" ]; then
+  printf 'Self-signing dm-verity certificate\n'
+  if [ ! -e "${csr}" ]; then
+    openssl req -new -subj "${subj}" -key "${key}" -out "${csr}"
+  fi
+  openssl x509 -req -in "${csr}" -key "${key}" -outform PEM -out "${pem}"
+fi

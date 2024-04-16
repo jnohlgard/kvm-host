@@ -1,0 +1,133 @@
+#!/usr/bin/sh
+set -euf
+
+cn_base="System UEFI"
+subj="/CN=${cn_base}${PROFILE+ ${PROFILE}} $(date +%Y)"
+
+die() {
+  if [ $# -gt 0 ]; then
+    >&2 printf "$@"
+  fi
+  exit 1
+}
+
+usage() {
+  printf 'Usage: %s <outdir>\n' "${0##*/}"
+}
+
+if [ $# -ne 1 ]; then
+  usage
+  exit 2
+fi
+
+outdir="$1";shift
+key="${outdir}/secure-boot.key"
+csr="${outdir}/secure-boot.csr"
+pem="${outdir}/secure-boot.crt"
+
+printf 'Generating SecureBoot keys into directory %s\n' "${outdir}"
+mkdir -pv "${outdir}"
+
+gen_sb_key() {
+  [ $# -eq 1 ] || die 'Usage: gen_sb_key <outfile>\n'
+  local keyout="$1";shift
+  # Only 2048 bit RSA keys are universally supported by UEFI implementations
+  printf 'Generating new RSA 2048 bit key: %s\n' "${keyout}"
+  openssl genpkey -algorithm rsa -pkeyopt 'rsa_keygen_bits:2048' -out "${keyout}"
+}
+
+if [ ! -e "${key}" ]; then
+  rm -fv "${csr}"
+  gen_sb_key "${key}"
+else
+  printf 'Existing key: %s\n' "${key}"
+  openssl pkey -in "${key}" -noout -check
+fi
+if [ ! -e "${pem}" ]; then
+  printf 'Self-signing SecureBoot certificate\n'
+  if [ ! -e "${csr}" ]; then
+    openssl req -new -subj "${subj} SecureBoot" -key "${key}" -out "${csr}"
+  fi
+  openssl x509 -req -in "${csr}" -key "${key}" -outform PEM -out "${pem}"
+fi
+
+uuid="$(systemd-id128 -u new)"
+tmpdir="$(mktemp -d -t 'secure-boot.XXXXXXX')"
+trap "rm -rvf '${tmpdir}'" EXIT
+cp -av \
+  "${key}" \
+  "${tmpdir}/db.key"
+cp -av \
+  "${pem}" \
+  "${tmpdir}/db.crt"
+
+for efivar in PK KEK db; do
+  key="${tmpdir}/${efivar}.key"
+  der="${tmpdir}/${efivar}.cer"
+  pem="${tmpdir}/${efivar}.crt"
+  csr="${tmpdir}/${efivar}.csr"
+  esl="${tmpdir}/${efivar}.esl"
+  auth="${tmpdir}/${efivar}.auth"
+  if [ -e "${auth}" ]; then
+    printf 'Authenticated EFI siglist already exists: %s, skipping\n' "${auth}"
+    continue
+  fi
+  if [ -e "${key}" ]; then
+    printf 'Using existing key: %s\n' "${key}"
+    openssl pkey -in "${key}" -noout -check
+  else
+    rm -fv "${pem}" "${der}" "${csr}"
+    gen_sb_key "${key}"
+  fi
+  # check if the certificates are already made
+  if [ -e "${der}" ] || [ -e "${pem}" ]; then
+    # Convert between DER <-> PEM
+    if [ ! -e "${pem}" ]; then
+      openssl x509 -outform PEM -out "${pem}" -in "${der}"
+    fi
+    printf 'Certificate exists: %s\n' "${pem}"
+    openssl x509 -subject -in "${pem}" -noout
+  elif [ -e "${csr}" ]; then
+    # Sign an existing request
+    printf 'Using existing CSR %s\n' "${csr}"
+    openssl req -in "${csr}" -noout -subject
+  fi
+  if [ ! -e "${pem}" ]; then
+    if [ ! -e "${csr}" ]; then
+      openssl req -new -subj "${subj} one-shot ${efivar}/dnQualifier=${uuid}" -key "${key}" -out "${csr}"
+    fi
+    openssl x509 -req -in "${csr}" -key "${key}" -outform PEM -out "${pem}"
+  fi
+  if [ ! -e "${der}" ]; then
+    openssl x509 -outform DER -out "${der}" -in "${pem}"
+  fi
+  sbsiglist --owner "${uuid}" --type x509 --output "${esl}" "${der}"
+done
+
+printf 'Signing authenticated EFI variables\n'
+attr="NON_VOLATILE,RUNTIME_ACCESS,BOOTSERVICE_ACCESS,TIME_BASED_AUTHENTICATED_WRITE_ACCESS"
+sbvarsign --attr "${attr}" \
+  --key "${tmpdir}/PK.key" \
+  --cert "${tmpdir}/PK.crt" \
+  --output "${tmpdir}/PK.auth" \
+  PK "${tmpdir}/PK.esl"
+sbvarsign --attr "${attr}" \
+  --key "${tmpdir}/PK.key" \
+  --cert "${tmpdir}/PK.crt" \
+  --output "${tmpdir}/KEK.auth" \
+  KEK "${tmpdir}/KEK.esl"
+sbvarsign --attr "${attr}" \
+  --key "${tmpdir}/KEK.key" \
+  --cert "${tmpdir}/KEK.crt" \
+  --output "${tmpdir}/db.auth" \
+  db "${tmpdir}/db.esl"
+
+cp -av \
+  "${tmpdir}/PK.auth" \
+  "${tmpdir}/PK.crt" \
+  "${tmpdir}/KEK.auth" \
+  "${tmpdir}/KEK.crt" \
+  "${tmpdir}/db.auth" \
+  "${tmpdir}/db.cer" \
+  "${tmpdir}/db.crt" \
+  "${outdir}/"
