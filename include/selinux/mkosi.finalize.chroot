@@ -1,0 +1,29 @@
+#!/usr/bin/sh
+set -euf
+
+state_dir=/var/lib/selinux
+conf_dir=/etc/selinux
+factory_dir=/usr/share/factory
+
+if [ -e "${conf_dir}/config" ]; then
+  . "${conf_dir}/config"
+fi
+
+if [ "${SELINUX:-disabled}" = 'disabled' ]; then
+  exit 0
+fi
+
+if [ -d "${state_dir}" ]; then
+  mv -v "${state_dir}" "${factory_dir}/${state_dir%/*}"
+fi
+
+if [ -d "${conf_dir}" ]; then
+  mv -v \
+    "${conf_dir}/${SELINUXTYPE}/seusers" \
+    "${conf_dir}/${SELINUXTYPE}/setrans.conf" \
+    "${conf_dir}/${SELINUXTYPE}/logins" \
+    "${factory_dir}/${state_dir}/${SELINUXTYPE}/"
+  mv -v "${conf_dir}" "${factory_dir}/${conf_dir%/*}"
+fi
+
+systemd-tmpfiles --create --boot --prefix="${state_dir}" --prefix="${conf_dir}"

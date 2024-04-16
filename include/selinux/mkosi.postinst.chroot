@@ -1,0 +1,6 @@
+#!/usr/bin/sh
+set -euf
+
+# Restrict all users to the SELinux user_u user by default
+# Use `semanage login -a 'user' -s staff_u` to increase access for a specific Linux user
+semanage login -m __default__ -s user_u -r s0
