@@ -1,0 +1,29 @@
+#!/usr/bin/sh
+set -euf
+
+src_image="${SRCDIR}/images/${IMAGE_ID}_${IMAGE_VERSION}.raw"
+dest_image="${OUTPUTDIR}/install-${IMAGE_ID}_${IMAGE_VERSION}.raw"
+
+systemd-dissect --validate "${src_image}"
+
+# Create an empty output file with the same size as the source image
+rm -f "${dest_image}"
+truncate --reference="${src_image}" "${dest_image}"
+
+# First build the ESP
+systemd-repart \
+  --offline=yes \
+  --definitions="${SRCDIR}/installer-repart.d/" \
+  --include-partitions=esp \
+  --copy-source="${BUILDROOT}/boot/" \
+  --empty=require \
+  --dry-run=no \
+  "${dest_image}"
+
+# Then copy the other partitions from the system image
+systemd-repart \
+  --offline=yes \
+  --copy-from="${src_image}" \
+  --exclude-partitions=esp \
+  --dry-run=no \
+  "${dest_image}"
