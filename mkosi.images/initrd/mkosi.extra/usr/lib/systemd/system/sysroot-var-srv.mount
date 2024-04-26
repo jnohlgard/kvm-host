@@ -8,8 +8,6 @@ After=blockdev@dev-vgsys-%j.target
 BindsTo=dev-vgsys-%j.device
 Wants=dev-vgsys-%j.device
 After=dev-vgsys-%j.device
-OnFailure=os-installer.target
-OnFailureJobMode=isolate
 
 [Mount]
 What=/dev/vgsys/%J
