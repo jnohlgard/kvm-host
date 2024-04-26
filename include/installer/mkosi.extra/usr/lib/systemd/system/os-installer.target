@@ -1,0 +1,11 @@
+[Unit]
+Description=OS installer mode
+Wants=cryptsetup-pre.target
+Wants=initrd-fs-pre.target
+Wants=pcscd.socket
+Wants=sysinit.target
+Wants=systemd-udevd.service
+Wants=systemd-pcrphase-initrd.service
+Requires=%N.service
+After=%N.service
+AllowIsolate=yes
