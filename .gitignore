@@ -11,7 +11,7 @@ mkosi.output/
 
 tmp/
 # Secureboot keys
-mkosi.images/bootdisk/mkosi.extra/efi/loader/keys/
+/keys/
 
 # SELinux binary policy package files
 *.pp
