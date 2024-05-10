@@ -20,7 +20,7 @@ source_size_bytes() {
     lsblk -rndb -o SIZE "${f}"
   elif [ -f "${f}" ]; then
     # Regular file
-    stat -L -c '$s' "${f}"
+    stat -L -c '%s' "${f}"
   fi  
 }
 
