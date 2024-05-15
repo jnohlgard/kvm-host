@@ -1,0 +1,37 @@
+#!/usr/bin/sh
+set -eu
+
+source_dir="${BUILDROOT}/mkosi.output"
+target_dir="${BUILDROOT}/images"
+
+printf 'Selecting system images to include on the install disk\n'
+mkdir -p "${target_dir}"
+image_prefix="${IMAGE_ID}_${IMAGE_VERSION}_${ARCHITECTURE}"
+for kind in root usr; do
+  for suffix in \
+    '.raw' \
+    '-verity.raw' \
+    '-verity-sig.raw' \
+    ; do
+    image_file="${image_prefix}.${kind}-${ARCHITECTURE}${suffix}"
+    [ -f "${source_dir}/${image_file}" ] || break
+    cp -v \
+      --reflink=auto \
+      -t "${target_dir}" \
+      "${source_dir}/${image_file}"
+  done
+done
+
+find "${BUILDROOT}/usr/lib/systemd/boot/efi/" \
+  -name 'systemd-boot*.efi.signed' \
+  -execdir \
+    cp -v \
+    --reflink=auto \
+    -t "${target_dir}" \
+    '{}' +
+
+mkdir -pv "${BUILDROOT}/efi/EFI/Linux/"
+cp -v \
+  --reflink=auto \
+  -t "${BUILDROOT}/efi/EFI/Linux/" \
+  "${source_dir}/${image_prefix}.efi"
