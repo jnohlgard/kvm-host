@@ -1,0 +1,12 @@
+#!/usr/bin/sh
+set -euf
+
+exit 0
+printf 'Stashing signed systemd-boot binaries.\n'
+find "${BUILDROOT}/usr/lib/systemd/boot/efi/" \
+  -name 'systemd-boot*.efi.signed' \
+  -execdir \
+    cp -v \
+    --reflink=auto \
+    -t "${OUTPUTDIR}/" \
+    '{}' +
