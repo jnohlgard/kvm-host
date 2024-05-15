@@ -1,0 +1,16 @@
+#!/usr/bin/sh
+set -euf
+
+state_dir="${BUILDROOT}/var/lib/selinux"
+conf_dir="${BUILDROOT}/etc/selinux"
+factory_dir="${BUILDROOT}/usr/share/factory"
+
+rm -rfv "${factory_dir}/${state_dir}"
+if [ -d "${state_dir}" ]; then
+  mkdir -pv "${factory_dir}/${state_dir%/*}"
+  cp -av \
+    --reflink=auto \
+    --no-target-directory \
+    "${state_dir}" \
+    "${factory_dir}/${state_dir}"
+fi
