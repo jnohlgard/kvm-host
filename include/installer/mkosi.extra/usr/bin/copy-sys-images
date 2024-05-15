@@ -63,21 +63,26 @@ printf '\n'
 printf 'Install version: %s\n' "${image_version}"
 
 printf 'Checking if VG %s exists\n' "${target_vg}"
-vgdisplay "${target_vg}" || die 'Create the target VG %s first\n' "${target_vg}"
+vgs -- "${target_vg}" || die 'Create the target VG %s first\n' "${target_vg}"
 printf 'Found %s\n' "${target_vg}"
-lvs "${target_vg}" || true
+lvs -- "${target_vg}" || true
 
+verity_roothash=
 printf 'Creating LVs and copying blocks and files\n'
 for image_type in root usr; do
   verity_roothash="$(kernel_cmdline_arg "${image_type}hash")"
+  lv_name="${image_prefix}_${image_type}-${arch}"
+
   if [ "${source_type}" = 'gpt' ]; then
     # Search for partitions according to Discoverable Partitions Specification
+    # https://uapi-group.org/specifications/specs/discoverable_partitions_specification/
     [ -n "${verity_roothash}" ] || continue
     verity_data_uuid="$(verity_data_uuid_from_roothash "${verity_roothash}")"
     verity_hash_uuid="$(verity_hash_uuid_from_roothash "${verity_roothash}")"
     image_source="$(lsblk -rn -o 'path' "${install_from}" \
       -Q "PARTUUID == \"${verity_data_uuid}\"")" || true
     if [ -z "${image_source}" ]; then
+      # Fall back to any partition with the correct partition type GUID
       image_source="$(lsblk -rn -o 'path' "${install_from}" \
         -Q "PARTTYPE == \"$(systemd-id128 show --value --uuid "${image_type}")\"")" || true
     fi
@@ -92,10 +97,17 @@ for image_type in root usr; do
         -Q "PARTTYPE == \"$(systemd-id128 show --value --uuid "${image_type}-verity-sig")\"")" || true
   else
     # Use image files from the given directory
-    image_source="${install_from}/${image_prefix}/${image_type}-${arch}.raw"
+    image_source="${install_from}/${image_prefix}.${image_type}-${arch}.raw"
+    if [ ! -e "${image_source}" ]; then
+      image_source="${install_from}/${image_prefix}_${arch}.${image_type}-${arch}.raw"
+    fi
+
     [ -f "${image_source}" ] || continue
     verity_source="${image_source%.raw}-verity.raw"
     verity_sig_source="${verity_source%.raw}-sig.raw"
+    if [ ! -f "${verity_sig_source}" ]; then
+      verity_sig_source="${verity_source%.raw}-sig.json"
+    fi
   fi
 
   ls -l \
@@ -104,8 +116,7 @@ for image_type in root usr; do
     "${verity_sig_source}" \
     || true
 
-  lv_name="${image_prefix}_${image_type}-${arch}"
-  if lvdisplay --column "${target_vg}/${lv_name}" 2>/dev/null; then
+  if lvs -- "${target_vg}/${lv_name}" 2>/dev/null; then
     printf 'LV %s already exists! Skipping\n' "${target_vg}/${lv_name}"
     continue
   fi
@@ -215,5 +226,5 @@ done
 
 printf 'VG %s is ready\n' "${target_vg}"
 
-vgdisplay "${target_vg}"
-lvs "${target_vg}"
+vgdisplay -- "${target_vg}"
+lvs -- "${target_vg}"

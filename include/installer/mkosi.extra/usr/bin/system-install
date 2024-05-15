@@ -1,5 +1,11 @@
 #!/usr/bin/sh
 set -euf
+
+unshared=
+if [ $# -gt 0 ] && [ "$1" = 'unshared' ]; then
+  unshared="$1"; shift
+fi
+
 incdir=/usr/lib
 . "${incdir}/lv-verity.inc.sh"
 
@@ -26,6 +32,11 @@ if [ $# -lt 1 ]; then
   exit 2
 fi
 
+if [ -z "${unshared}" ]; then
+  printf 'Entering a private mount namespace\n'
+  exec unshare --mount "$0" 'unshared' "$@"
+fi
+
 vg_name='vgsys'
 label_base="${LUKSFORMAT_LABEL:-pvsys}"
 var_name='var'
@@ -35,7 +46,7 @@ home_size='4G'
 srv_name='srv'
 srv_size='1G'
 
-if vgdisplay --column "${vg_name}" 2>/dev/null; then
+if vgs -- "${vg_name}" 2>/dev/null; then
   die 'VG %s already exists. Refusing reinstallation.\n' "${vg_name}"
 fi
 
@@ -68,21 +79,21 @@ system-install-create-lv "${vg_name}" "${var_name}" "${var_size}" --addtag '@typ
 system-install-create-lv "${vg_name}" "${srv_name}" "${srv_size}" --addtag '@type:srv'
 system-install-create-lv "${vg_name}" "${home_name}" "${home_size}" --addtag '@type:home'
 
-roothash="$(kernel_cmdline_arg roothash)"
-if [ -z "${roothash}" ]; then
-  roothash="$(kernel_cmdline_arg usrhash)"
-fi
-install_from="$(lsblk -T -J -o 'PATH,PARTUUID' | \
-  jq -r ".blockdevices[] | recurse(.children[]?) | select( .children[]?.partuuid == \"$(verity_hash_uuid_from_roothash "${roothash}")\" ) | .path" \
-  )"
+install_from=/run/sysimages
+mkdir -p "${install_from}"
+mount -o ro "/dev/disk/by-partlabel/sysimages" "${install_from}"
 copy-sys-images "${install_from}" "${vg_name}"
+mount -v -o umask=077 "${1}1" /boot
+/usr/lib/systemd/systemd-sysupdate \
+  --verify=yes \
+  --sync=yes \
+  --root=/ \
+  --definitions=/usr/lib/sysupdate.d/ \
+  update
 
 printf 'Reloading systemd units and updating verity mappings...\n'
-systemctl reset-failed systemd-veritysetup@root.service
+systemctl reset-failed 'systemd-veritysetup@root.service*'
 systemctl daemon-reload
-SYSTEMD_LOG_TARGET=console systemctl start initrd-root-device.target veritysetup.target
-printf 'Mounting /sysroot file systems\n'
-SYSTEMD_LOG_TARGET=console systemctl start initrd-root-fs.target initrd-fs.target
 
 selinux_store="/sysroot/etc/selinux"
 selinux_user="sysadm_u"
@@ -109,11 +120,6 @@ if [ -e "${selinux_store}/config" ]; then
   fi
   printf 'Unix logins to SELinux user mappings:\n'
   semanage login -S "${selinux_store}" -l
-
 fi
 
 printf '\nInstallation complete!\n'
-
-if [ -t 0 ] && [ -e "/etc/initrd-release" ]; then
-  printf 'Press ctrl+d to continue booting\n'
-fi

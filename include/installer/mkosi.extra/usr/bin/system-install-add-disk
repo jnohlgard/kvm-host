@@ -1,11 +1,6 @@
 #!/usr/bin/sh
 set -euf
 
-unshared=
-if [ $# -gt 0 ] && [ "$1" = 'unshared' ]; then
-  unshared="$1"; shift
-fi
-
 die() {
   if [ $# -gt 0 ]; then
     >&2 printf "$@"
@@ -36,11 +31,6 @@ if [ $# -lt 2 ]; then
   exit 2
 fi
 
-if [ -z "${unshared}" ]; then
-  printf 'Entering a private mount namespace\n'
-  exec unshare --mount "$0" 'unshared' "$@"
-fi
-
 export LUKSFORMAT_MKFS='pvcreate --metadatasize=8m --dataalignment=16m --verbose --yes --devicesfile= '
 export LUKSFORMAT_TPM2_DEVICE="${LUKSFORMAT_TPM2_DEVICE:-auto}"
 if [ -z "${LUKSFORMAT_FIDO2_DEVICE+set}" ]; then
@@ -52,9 +42,8 @@ if [ -z "${LUKSFORMAT_FIDO2_DEVICE+set}" ]; then
 fi
 label_base="$1"; shift
 repart_d='/usr/lib/repart-sys.d'
+repart_esp_num=1
 repart_pv_num=2
-esp_uuid="$(efi-loader-partuuid)"
-esp_dev="/dev/disk/by-partuuid/${esp_uuid}"
 
 # Get the number from any existing PVs to find where to start counting the index.
 last_existing_pv="$( \
@@ -65,14 +54,30 @@ last_existing_pv="$( \
   || printf '%s-0' "${label_base}" \
   )"
 idx="${last_existing_pv##*-}"
+exclude_partitions=
+esp_dev=
 for dev in "$@"; do
   idx=$((idx + 1))
   devtype="$(lsblk -rnd -o 'type' "${dev}")" || true
   if [ "${devtype:-}" = "disk" ]; then
-    mkdir -p /boot /efi
-    unshare --mount sh -c \
-      "trap 'umount /efi' EXIT; mount -n -v '${esp_dev}' /efi && systemd-repart --empty=allow --dry-run=no --definitions='${repart_d}' --root=/ '${dev}'"
+    systemd-repart \
+      --empty=allow \
+      --dry-run=no \
+      --definitions="${repart_d}" \
+      --root=/ \
+      ${exclude_partitions:+--exclude-partitions="${exclude_partitions}"} \
+      "${dev}"
+    if [ -z "${esp_dev}" ]; then
+      # Only create one ESP
+      esp_dev="${dev}${repart_esp_num}"
+      exclude_partitions=esp
+    fi
     dev="${dev}${repart_pv_num}"
   fi
   LUKSFORMAT_LABEL="${label_base}-${idx}" luks-format "${dev}"
 done
+
+if [ -n "${esp_dev}" ]; then
+  printf 'Installing systemd-boot to %s\n' "${esp_dev}"
+  mount -o umask=077 -n -v "${esp_dev}" /boot && bootctl install --esp-path=/boot && bootctl random-seed --graceful --esp-path=/boot
+fi
