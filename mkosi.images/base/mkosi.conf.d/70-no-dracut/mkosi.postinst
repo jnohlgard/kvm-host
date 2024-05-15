@@ -1,0 +1,8 @@
+#!/usr/bin/sh
+set -eu
+
+printf 'Deleting leftover dracut initramfs:\n'
+find "${BUILDROOT}/boot" \
+  -maxdepth 1 -mindepth 1 \
+  -name 'initramfs-*.img' \
+  -print -delete
