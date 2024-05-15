@@ -1,0 +1,4 @@
+#!/usr/bin/sh
+set -euf
+
+mkosi-install systemd-homed-selinux

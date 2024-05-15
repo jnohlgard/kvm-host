@@ -1,6 +1,11 @@
 #!/usr/bin/sh
 set -euf
 set -x
-make -C homed-selinux -f /usr/share/selinux/devel/Makefile
-mkdir -p "${PACKAGEDIR}/selinux"
-cp -av homed-selinux/homed.pp "${PACKAGEDIR}/selinux/"
+make -C systemd-homed-selinux rpm
+find systemd-homed-selinux \
+  -name '*.rpm' \
+  -execdir cp \
+    -av \
+    --reflink=auto \
+    -t "${PACKAGEDIR}/" \
+    '{}' +
