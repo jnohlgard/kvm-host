@@ -1,0 +1,11 @@
+#!/usr/bin/sh
+set -euf
+
+mkdir -p "${DESTDIR}/efi/loader/addons/"
+
+ukify build \
+  --cmdline='rd.systemd.unit=os-installer.target' \
+  --secureboot-private-key="${SRCDIR}/keys/${PROFILE}/secure-boot.key" \
+  --secureboot-certificate="${SRCDIR}/keys/${PROFILE}/secure-boot.crt" \
+  --output="${DESTDIR}/efi/loader/addons/installer.addon.efi"
+
