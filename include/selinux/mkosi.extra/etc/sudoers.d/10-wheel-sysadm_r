@@ -1,0 +1,2 @@
+# Use role sysadm_r by default when using sudo as a wheel member
+Defaults:%wheel role=sysadm_r
