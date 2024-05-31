@@ -31,6 +31,8 @@ fi
 
 umask 077
 mkdir -pv "${homedir}" "${pub%/*}"
+cp -av -t "${homedir}" "${rootdir}/etc/skel/."
 useridentity "${user}" "${homedir}/.identity"
+chown -R nobody:nobody "${homedir}"
 
 jq -r '.signature[]?.key' "${homedir}/.identity" > "${pub}"
