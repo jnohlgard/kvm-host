@@ -58,6 +58,6 @@ jq --tab \
   --arg pubkey "${pubkey}" \
   --arg sigdata "${signature}" \
   '.signature += [{ "data": $sigdata, "key": $pubkey }]' \
-  < "${identity}" | tee "${out}"
+  < "${identity}" > "${out}"
 shred -zu "${identity}" "${key}" "${pub}"
 rmdir "${tmpdir}"
