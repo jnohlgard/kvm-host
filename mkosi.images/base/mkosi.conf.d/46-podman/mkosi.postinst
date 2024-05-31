@@ -1,0 +1,6 @@
+#!/usr/bin/sh
+set -euf
+
+printf 'Masking docker.socket to avoid accidental activation\n'
+rm -f "${BUILDROOT}/etc/systemd/system/docker.socket"
+ln -sfv /dev/null "${BUILDROOT}/etc/systemd/system/docker.socket"
