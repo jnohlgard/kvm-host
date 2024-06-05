@@ -1,11 +1,6 @@
 #!/usr/bin/sh
 set -euf
 
-unshared=
-if [ $# -gt 0 ] && [ "$1" = 'unshared' ]; then
-  unshared="$1"; shift
-fi
-
 incdir=/usr/lib
 . "${incdir}/lv-verity.inc.sh"
 
@@ -30,11 +25,6 @@ usage() {
 if [ $# -lt 1 ]; then
   usage
   exit 2
-fi
-
-if [ -z "${unshared}" ]; then
-  printf 'Entering a private mount namespace\n'
-  exec unshare --mount "$0" 'unshared' "$@"
 fi
 
 vg_name='vgsys'
@@ -75,51 +65,110 @@ vgcreate --verbose \
   --dataalignment=16m \
   ${luks_devices}
 
-system-install-create-lv "${vg_name}" "${var_name}" "${var_size}" --addtag '@type:var'
-system-install-create-lv "${vg_name}" "${srv_name}" "${srv_size}" --addtag '@type:srv'
-system-install-create-lv "${vg_name}" "${home_name}" "${home_size}" --addtag '@type:home'
+system-install-create-lv \
+  "${vg_name}" \
+  "${var_name}" \
+  "${var_size}" \
+  --addtag '@type:var'
+system-install-create-lv \
+  "${vg_name}" \
+  "${srv_name}" \
+  "${srv_size}" \
+  --addtag '@type:srv'
+system-install-create-lv \
+  "${vg_name}" \
+  "${home_name}" \
+  "${home_size}" \
+  --addtag '@type:home'
 
-install_from=/run/sysimages
-mkdir -p "${install_from}"
-mount -o ro "/dev/disk/by-partlabel/sysimages" "${install_from}"
-copy-sys-images "${install_from}" "${vg_name}"
-mount -v -o umask=077 "${1}1" /boot
+# xfs protofile for /var
+# 1 1
+# d--755 0 0
+# etc d--755 0 0
+# $
+# .overlay d--755 0 0
+# etc d--755 0 0
+# work d--755 0 0
+# $
+# upper d--755 0 0
+# $
+# $
+# $
+# $
+
+install_from="/run/os-install"
+esp_source="/dev/disk/by-id/efi-loader-esp"
+image_source="/dev/disk/by-partlabel/sysimages"
+source_mountopts="noexec,nodev,nosuid,noatime"
+esp_mountopts="${source_mountopts},umask=077"
+# Look for a GPT partition with the correct type UUID but fall back to the
+# first partition of the first target device
+esp_dev="$(lsblk -J -T -o parttype,path "$@" | jq -j \
+  '[.blockdevices[]?.children[]? | select(.parttype == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b") | .path] | first' \
+  || printf '%s' "${1}1" \
+  )"
+systemd-mount \
+  -o "ro,${source_mountopts}" \
+  "${image_source}" \
+  "${install_from}/images"
+systemd-mount \
+  -t vfat \
+  --owner=root \
+  -o "ro,${esp_mountopts}" \
+  "${esp_source}" \
+  "${install_from}/efi"
+copy-sys-images \
+  "${install_from}/images" \
+  "${vg_name}"
+systemd-mount \
+  -t vfat \
+  --owner=root \
+  -o "${esp_mountopts}" \
+  "${esp_dev}" \
+  /efi
 /usr/lib/systemd/systemd-sysupdate \
   --verify=yes \
   --sync=yes \
   --root=/ \
   --definitions=/usr/lib/sysupdate.d/ \
   update
+systemd-mount -u \
+  "${install_from}/efi" \
+  "${install_from}/images"
 
 printf 'Reloading systemd units and updating verity mappings...\n'
+# Using the asterisk to avoid failing if there is no service by this name, the
+# generator will create it if it is missing when we call daemon-reload next.
 systemctl reset-failed 'systemd-veritysetup@root.service*'
 systemctl daemon-reload
+systemctl start initrd-root-fs.target initrd-fs.target
 
-selinux_store="/sysroot/etc/selinux"
-selinux_user="sysadm_u"
 user=prov
+selinux_user=staff_u
+selinux_root="/sysroot/etc/selinux"
+homedir="/sysroot/var/home/${user}"
 printf 'Creating a temporary provisioning user account "%s"\n' "${user}"
-system-install-add-homed-user "${user}" /sysroot
+system-install-add-homed-user \
+  "${user}" \
+  /sysroot
 
-if [ -e "${selinux_store}/config" ]; then
-  mountpoints="$(findmnt -rRn -o target -T '/sysroot/var')"
-
-  semanage login -S "${selinux_store}" -a -s "${selinux_user}" "${user}"
-
-  if [ -n "${mountpoints}" ]; then
-    . "${selinux_store}/config"
-    if [ "${SELINUX:-disabled}" != 'disabled' ]; then
-      printf 'Applying SELinux contexts to newly created /var files\n'
-      setfiles -mFv \
-        -r '/sysroot' \
-        -c "${selinux_store}/${SELINUXTYPE}/policy/policy.33" \
-        "${selinux_store}/${SELINUXTYPE}/contexts/files/file_contexts" \
-        ${mountpoints} \
-        || printf 'Warning: There were some errors during SELinux relabeling.\n'
-    fi
+if [ -e "${selinux_root}/config" ]; then
+  . "${selinux_root}/config"
+  if [ "${SELINUX:-disabled}" != 'disabled' ]; then
+    mountpoints="$(findmnt -rRn -o target -T '/sysroot/var')"
+    if [ -n "${mountpoints}" ]; then
+        printf 'Applying SELinux contexts to newly created /var files\n'
+        setfiles -mFv \
+          -r '/sysroot' \
+          -c "${selinux_root}/${SELINUXTYPE}/policy/policy.33" \
+          "${selinux_root}/${SELINUXTYPE}/contexts/files/file_contexts" \
+          ${mountpoints} \
+          || printf 'Warning: There were some errors during SELinux relabeling.\n'
+        chcon -u "${selinux_user}" -R "/sysroot/var/home/${user}.homedir"
+      fi
+    printf 'Unix logins to SELinux user mappings:\n'
+    cat "${selinux_root}/${SELINUXTYPE}/seusers" || :
   fi
-  printf 'Unix logins to SELinux user mappings:\n'
-  semanage login -S "${selinux_store}" -l
 fi
 
 printf '\nInstallation complete!\n'
