@@ -1,3 +1,4 @@
+enable sysroot-etc.mount
 enable sysroot-var.mount
 enable sysroot-var-home.mount
 enable sysroot-var-srv.mount

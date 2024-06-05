@@ -1,7 +1,9 @@
 [Unit]
-Description=/%J system persistent state
+Description=%f system persistent state
 DefaultDependencies=no
 Before=initrd-fs.target
+Wants=systemd-makefs@dev-vgsys-%j.service
+After=systemd-makefs@dev-vgsys-%j.service
 Requires=systemd-fsck@dev-vgsys-%j.service
 After=systemd-fsck@dev-vgsys-%j.service
 After=blockdev@dev-vgsys-%j.target

@@ -1,0 +1,23 @@
+[Unit]
+Description=%f writable persistent overlay
+DefaultDependencies=no
+Before=initrd-root-fs.target
+ConditionPathExists=/etc/initrd-release
+Wants=modprobe@overlay.service
+After=modprobe@overlay.service
+# overlay-prepare@ is only required because we can't use StateDirectory= to mkdir the
+# overlay backing directories when running inside the initrd, because we want to
+# use /sysroot/var/lib and not the initrd /var/lib
+Requires=overlay-prepare@%j.service
+After=overlay-prepare@%j.service
+
+
+[Mount]
+What=overlay
+Type=overlay
+# NB: %j instead of %p in order to eliminate the 'sysroot-' prefix in this initrd
+# variant of the mount unit.
+Options=nosuid,nodev,lowerdir=%f,upperdir=/sysroot%S/overlays/%j/upper,workdir=/sysroot%S/overlays/%j/work
+
+[Install]
+WantedBy=initrd-root-fs.target

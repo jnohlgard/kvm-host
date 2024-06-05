@@ -1,0 +1,11 @@
+[Unit]
+Description=Prepare backing store for overlay %f
+DefaultDependencies=no
+RequiresMountsFor=/sysroot%S/overlays/%i
+Before=initrd-fs.target
+Conflicts=umount.target
+Before=umount.target
+
+[Service]
+Type=oneshot
+ExecStart=mkdir -pv "/sysroot%S/overlays/%i/upper" "/sysroot%S/overlays/%i/work"
