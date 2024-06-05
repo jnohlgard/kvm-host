@@ -67,17 +67,36 @@ for dev in "$@"; do
       --root=/ \
       ${exclude_partitions:+--exclude-partitions="${exclude_partitions}"} \
       "${dev}"
+    udevadm wait --settle --timeout=3 "${dev}" || :
     if [ -z "${esp_dev}" ]; then
       # Only create one ESP
-      esp_dev="${dev}${repart_esp_num}"
+      esp_dev="$(lsblk -J -T -o parttype,path "${dev}" | jq -j \
+        '.blockdevices[]?.children | map(select(.parttype == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b")) | first | .path // empty' \
+        )" && \
       exclude_partitions=esp
     fi
-    dev="${dev}${repart_pv_num}"
+    if [ -b "${dev}part${repart_pv_num}" ]; then
+      dev="${dev}part${repart_pv_num}"
+    elif [ -b "${dev}p${repart_pv_num}" ]; then
+      dev="${dev}p${repart_pv_num}"
+    elif [ -b "${dev}${repart_pv_num}" ]; then
+      dev="${dev}${repart_pv_num}"
+    else
+      dev="$(lsblk -J -T -o path "${dev}" | jq -j \
+        ".blockdevices[]?.children[${repart_pv_num} - 1]?.path // empty" \
+        )"
+    fi
+    [ -e "${dev}" ] || die 'Unable to find partition %d of disk %s\n' "${repart_pv_num}" "${dev}"
   fi
   LUKSFORMAT_LABEL="${label_base}-${idx}" luks-format "${dev}"
 done
 
 if [ -n "${esp_dev}" ]; then
   printf 'Installing systemd-boot to %s\n' "${esp_dev}"
-  mount -o umask=077 -n -v "${esp_dev}" /boot && bootctl install --esp-path=/boot && bootctl random-seed --graceful --esp-path=/boot
+  ESP_DEV="${esp_dev}" unshare \
+    --fork \
+    --mount \
+    --pid \
+    --mount-proc \
+    sh -c 'mount -o umask=077 -n -v "${ESP_DEV}" /boot && bootctl install --esp-path=/boot && bootctl random-seed --graceful --esp-path=/boot && umount /boot'
 fi
