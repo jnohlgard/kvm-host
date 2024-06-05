@@ -1,6 +1,11 @@
 #!/usr/bin/sh
 set -euf
 
-# Restrict all users to the SELinux user_u user by default
+# Restrict all users to the SELinux guest_u user by default
+# Members of unix group wheel are assigned SELinux user staff_u
 # Use `semanage login -a 'user' -s staff_u` to increase access for a specific Linux user
-semanage login -m __default__ -s user_u -r s0
+semanage import <<-'EOF'
+login -D
+login -a -s staff_u -r 's0-s0:c0.c1023' %wheel
+login -m -s guest_u -r 's0' __default__
+EOF
