@@ -1,0 +1,16 @@
+[Unit]
+Description=%f writable persistent overlay
+ConditionPathExists=!/etc/initrd-release
+Wants=modprobe@overlay.service
+After=modprobe@overlay.service
+RequiresMountsFor=%S/overlays/%p
+
+[Mount]
+What=overlay
+Type=overlay
+Options=nosuid,nodev,lowerdir=%f,upperdir=%S/overlays/%p/upper,workdir=%S/overlays/%p/work
+StateDirectory=overlays/%p/upper
+StateDirectory=overlays/%p/work
+
+[Install]
+WantedBy=local-fs.target
