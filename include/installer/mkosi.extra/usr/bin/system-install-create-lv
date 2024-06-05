@@ -43,8 +43,3 @@ lvcreate --verbose \
   --name="${lv_name}" \
   --size="${lv_size}" \
   "$@"
-
-udevadm lock -d "/dev/${vg_name}/${lv_name}" \
-  mkfs.xfs \
-  -L "${lv_name}" \
-  "/dev/${vg_name}/${lv_name}"
