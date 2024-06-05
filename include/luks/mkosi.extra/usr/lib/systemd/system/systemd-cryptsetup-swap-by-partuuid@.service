@@ -8,6 +8,7 @@ After=systemd-random-seed.service
 Wants=blockdev@dev-mapper-swap\x2d%i.target
 Before=blockdev@dev-mapper-swap\x2d%i.target
 Before=systemd-mkswap@dev-mapper-swap\x2d%i.service
+Before=dev-mapper-swap\x2d%i.swap
 Before=cryptsetup.target
 Before=swap.target
 IgnoreOnIsolate=yes

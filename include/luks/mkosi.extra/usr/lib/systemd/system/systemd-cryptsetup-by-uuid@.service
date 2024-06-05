@@ -7,6 +7,7 @@ After=cryptsetup-pre.target systemd-udevd-kernel.socket
 After=systemd-random-seed.service
 Wants=blockdev@dev-mapper-%i.target
 Before=blockdev@dev-mapper-%i.target
+Before=systemd-makefs@dev-mapper-%i.service
 Before=cryptsetup.target
 IgnoreOnIsolate=yes
 Conflicts=umount.target

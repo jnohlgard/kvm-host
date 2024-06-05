@@ -1,0 +1,16 @@
+[Unit]
+Description=Make Swap on %f
+Documentation=man:systemd-mkswap@.service(8)
+
+DefaultDependencies=no
+BindsTo=%i.device
+After=%i.device
+Before=%i.swap
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/systemd/systemd-makefs swap "%f"
+TimeoutSec=infinity

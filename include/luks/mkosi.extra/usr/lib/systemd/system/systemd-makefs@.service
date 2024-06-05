@@ -1,0 +1,16 @@
+[Unit]
+Description=Make File System on %f
+Documentation=man:systemd-makefs@.service(8)
+DefaultDependencies=no
+BindsTo=%i.device
+After=%i.device
+Before=systemd-fsck@%i.service
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=FSTYPE=xfs
+ExecStart=/usr/lib/systemd/systemd-makefs "${FSTYPE}" "%f"
+TimeoutSec=infinity
