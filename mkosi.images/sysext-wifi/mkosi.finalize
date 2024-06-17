@@ -1,0 +1,4 @@
+#!/usr/bin/sh
+set -euf
+
+cp -a --reflink=auto -t "${BUILDROOT}/usr/share/factory/" "${BUILDROOT}/etc"
