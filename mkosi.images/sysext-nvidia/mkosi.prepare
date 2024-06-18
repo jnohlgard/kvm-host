@@ -1,0 +1,28 @@
+#!/usr/bin/sh
+set -euf
+set -x
+
+[ "${1:-final}" = "final" ] || exit 0
+
+repo_dist="${DISTRIBUTION}${RELEASE}"
+if [ "${repo_dist}" = "fedora40" ]; then
+  repo_dist=fedora39
+fi
+case "${ARCHITECTURE:-}" in
+  x86-64)
+    repo_arch=x86_64;;
+  arm64)
+    repo_arch=aarch64;;
+  *)
+    repo_arch="${ARCHITECTURE}";;
+esac
+repo_url="https://developer.download.nvidia.com/compute/cuda/repos/${repo_dist}/${repo_arch}/cuda-${repo_dist}.repo"
+
+#curl -#SLf -o "${BUILDROOT}/etc/yum.repos.d/nvidia-cuda.repo" "${repo_url}"
+dnf config-manager addrepo --from-repofile="${repo_url}"
+dnf makecache --repo='cuda-*' --setopt=cacheonly=none
+
+mkosi-install \
+  kmod-nvidia-latest-dkms \
+  nvidia-kmod-common \
+  ;
