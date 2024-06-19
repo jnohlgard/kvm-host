@@ -1,6 +1,9 @@
 #!/usr/bin/sh
 set -euf
 
+mkdir -p "${BUILDROOT}/usr/share/factory"
+cp -a --reflink=auto -t "${BUILDROOT}/usr/share/factory/" "${BUILDROOT}/etc"
+
 exit 0
 printf 'Stashing signed systemd-boot binaries.\n'
 find "${BUILDROOT}/usr/lib/systemd/boot/efi/" \
