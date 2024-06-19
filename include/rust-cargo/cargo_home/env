@@ -1,0 +1,36 @@
+#!/usr/bin/sh
+set -euf
+
+# Set some cargo environment variables so that we can reuse installed programs from previous runs.
+export CARGO_HOME="${SRCDIR}/.cargo"
+export CHROOT_CARGO_HOME="${CHROOT_SRCDIR}/.cargo"
+export PATH="${CARGO_HOME}/bin:${PATH}"
+if [ -n "${BUILDDIR:-}" ]; then
+  export CARGO_TARGET_DIR="${BUILDDIR}/cargo"
+  mkdir -pv "${CARGO_TARGET_DIR}"
+  export SCCACHE_DIR="${BUILDDIR}/sccache"
+  mkdir -pv "${SCCACHE_DIR}"
+fi
+if [ -n "${RUSTC_WRAPPER:-}" ] && \
+  ! command -v "${RUSTC_WRAPPER}" >/dev/null 2>&1
+then
+  printf 'Missing rustc-wrapper "%s"\n' "${RUSTC_WRAPPER}"
+  printf 'Attempting to install it via cargo...\n'
+  env \
+    -u RUSTC_WRAPPER \
+    CARGO_INSTALL_ROOT="${CARGO_HOME}" \
+    cargo install "${RUSTC_WRAPPER}" \
+    || unset RUSTC_WRAPPER
+  [ -n "${RUSTC_WRAPPER:-}" ] || \
+    printf 'Failed to install rustc-wrapper, unsetting RUSTC_WRAPPER environment variable\n'
+fi
+
+if [ -z "${SCCACHE_DIR:-}" ] && \
+  [ "${RUSTC_WRAPPER:-}" = "sccache" ]
+then
+  # Disable sccache because without SCCACHE_DIR set it will try to write to
+  # /.cache/sccache inside the mkosi build environment and error out.
+  unset RUSTC_WRAPPER
+fi
+
+printf 'Using Cargo: %s\n' "$(command -v cargo)"
