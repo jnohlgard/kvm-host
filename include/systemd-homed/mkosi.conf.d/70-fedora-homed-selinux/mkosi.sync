@@ -4,8 +4,9 @@ set -euf
 git_url=https://github.com/jnohlgard/systemd-homed-selinux.git
 repo=systemd-homed-selinux
 
-workdir="${SRCDIR}/${repo}"
+workdir="${SRCDIR}/ext/${repo}"
 
+mkdir -p "${workdir}"
 if ! [ -e "${workdir}/.git" ]; then
   git clone "${git_url}" "${workdir}"
 else

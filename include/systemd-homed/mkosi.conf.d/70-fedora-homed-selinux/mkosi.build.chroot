@@ -1,8 +1,11 @@
 #!/usr/bin/sh
 set -euf
-set -x
-make -C systemd-homed-selinux rpm
-find systemd-homed-selinux \
+
+repo=systemd-homed-selinux
+workdir="${SRCDIR}/ext/${repo}"
+
+make -C "${workdir}" rpm
+find "${workdir}" \
   -name '*.rpm' \
   -execdir cp \
     -av \
