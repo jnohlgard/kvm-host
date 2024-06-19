@@ -1,0 +1,22 @@
+#!/usr/bin/sh
+set -euf
+
+if [ $# -gt 0 ] && [ "$1" != 'final' ]; then
+  exit 0
+fi
+
+rmdir -v \
+  "${BUILDROOT}/home" \
+  "${BUILDROOT}/srv" \
+  "${BUILDROOT}/mnt" \
+  "${BUILDROOT}/media" \
+  ;
+ln -sv \
+  var/home \
+  var/srv \
+  var/mnt \
+  run/media \
+  "${BUILDROOT}/"
+
+rm -rvf "${BUILDROOT}/root"
+ln -svfT var/roothome "${BUILDROOT}/root"
