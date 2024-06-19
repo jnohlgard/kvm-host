@@ -1,0 +1,14 @@
+#!/usr/bin/sh
+set -euf
+
+git_url=https://github.com/kanidm/kanidm.git
+repo=kanidm
+
+workdir="${SRCDIR}/src/${repo}"
+
+mkdir -pv "${workdir}"
+if ! [ -e "${workdir}/.git" ]; then
+  git clone "${git_url}" "${workdir}"
+else
+  git -C "${workdir}" pull --ff-only --stat || :
+fi

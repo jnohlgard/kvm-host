@@ -1,0 +1,33 @@
+#!/usr/bin/sh
+set -euf
+set -x
+
+if [ -r "${SRCDIR}/.cargo/env" ]; then
+  . "${SRCDIR}/.cargo/env"
+fi
+
+if [ "${WITH_NETWORK:-0}" -eq 0 ]; then
+  export CARGO_NET_OFFLINE=true
+fi
+
+if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+  mkdir -p "${CARGO_TARGET_DIR}"
+  rm -rf "${SRCDIR}/src/kanidm/target"
+  ln -srv "${CARGO_TARGET_DIR}" "${SRCDIR}/src/kanidm/target"
+fi
+
+time make -C "${SRCDIR}/src/kanidm" \
+  release/kanidm \
+  release/kanidm-unixd \
+  release/kanidm-ssh \
+  ;
+
+if [ "${WITH_TESTS:-0}" -ne 0 ]; then
+  make -C "${SRCDIR}/src/kanidm" \
+    test
+fi
+
+if [ "${WITH_DOCS:-0}" -ne 0 ]; then
+  make -C "${SRCDIR}/src/kanidm" \
+    book
+fi

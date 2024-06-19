@@ -1,0 +1,21 @@
+#!/usr/bin/sh
+set -euf
+set -x
+
+[ "${1:-final}" = "build" ] || exit 0
+
+if [ -r "${SRCDIR}/.cargo/env" ]; then
+  . "${SRCDIR}/.cargo/env"
+fi
+
+env -C "${SRCDIR}/src/kanidm" \
+  cargo fetch \
+  ${CARGO_BUILD_TARGET:+--target="${CARGO_BUILD_TARGET}"}
+
+if [ "${WITH_DOCS:-0}" -ne 0 ]; then
+  cargo install \
+    mdbook \
+    mdbook-mermaid \
+    mdbook-template \
+    ;
+fi
