@@ -1,0 +1,53 @@
+#!/usr/bin/sh
+set -euf
+set -x
+
+kmod_src_base="${BUILDROOT}/usr/lib/modules"
+dkmstree="${BUILDDIR:-${BUILDROOT}/var/lib}/dkms"
+installtree="${DESTDIR}/usr/lib/modules"
+arch="$(uname -m)"
+
+mkdir -pv \
+  "${installtree}" \
+  "${dkmstree}" \
+  "${BUILDROOT}/etc/dkms/framework.conf.d/" \
+  ;
+printf '%s\n' \
+  'modprobe_on_install=' \
+  > "${BUILDROOT}/etc/dkms/framework.conf.d/mkosi-build.conf"
+
+module_name=nvidia
+module="$(dkms status \
+  --dkmstree="${BUILDROOT}/var/lib/dkms" | \
+  grep -e "^${module_name}" | \
+  grep -v -e 'installed$' | \
+  cut -d',' -f1 | cut -d':' -f1)"
+#module_version="$(find "${BUILDROOT}/usr/src/" \
+#  -mindepth 1 -maxdepth 1 \
+#  -type d -name "${module_name}-[0-9]*" \
+#  -printf '%f\n' | \
+#  sort -V -r | head -n 1 | \
+#  sed -e "s/^${module_name}-//" \
+#  )"
+
+for kmoddir in $(find "${kmod_src_base}/" \
+  -mindepth 1 -maxdepth 1 \
+  -name '[1-9]*' \
+  -type d \
+  -printf '%p\n')
+do
+  kver="${kmoddir##*/}"
+
+  mkdir -pv "${installtree}/${kver}/"
+
+  #rm -f "${dkmstree}/${module_name}/kernel-${kver}-${arch}"
+
+  dkms install \
+    --verbose \
+    -k "${kver}" \
+    --installtree="${installtree}" \
+    --dkmstree="${dkmstree}" \
+    --kernelsourcedir="${kmoddir}/build" \
+    --force \
+    "${module}"
+done

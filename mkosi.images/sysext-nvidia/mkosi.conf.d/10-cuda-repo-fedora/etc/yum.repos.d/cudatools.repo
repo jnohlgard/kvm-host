@@ -1,0 +1,6 @@
+[cudatools]
+name=nvidia cuda tools and drivers
+baseurl=https://developer.download.nvidia.com/compute/cuda/repos/fedora39/$basearch
+enabled=1
+gpgcheck=1
+gpgkey=https://developer.download.nvidia.com/compute/cuda/repos/fedora39/$basearch/repodata/repomd.xml.key

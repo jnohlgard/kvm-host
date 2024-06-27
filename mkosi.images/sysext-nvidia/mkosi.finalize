@@ -1,0 +1,4 @@
+#!/usr/bin/sh
+set -eu
+
+find "${BUILDROOT}/usr/lib/modules/"*"/extra" -ls
